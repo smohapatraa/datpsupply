@@ -91,7 +91,7 @@ CELL_MAP = {
     "vehicle_no": "I59",
     "house1st": "G62",
     "age1st": "G63",
-    "birds1st": "H64",
+    "birds1st": "G64",
     "house2nd": "J62",
     "age2nd": "J63",
     "birds2nd": "J64",
@@ -244,7 +244,7 @@ with st.form("duplicate_form", clear_on_submit=False):
     with col2:
         house1st = st.text_input("House #1st (G62)", value=p.get("house1st", ""))
         age1st = st.text_input("Age #1st (G63)", value=p.get("age1st", ""))
-        birds1st = st.text_input("Birds #1st (H64)", value=p.get("birds1st", ""))
+        birds1st = st.text_input("Birds #1st (G64)", value=p.get("birds1st", ""))
 
     st.markdown("---")
     st.caption("**2nd Entry (optional)**")
