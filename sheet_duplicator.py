@@ -276,14 +276,18 @@ def fetch_dashboard_data(sheet_names):
             if not data or len(data) < 30:
                 continue
 
-            # ---- Read individual cells ----
+            # ---- Read individual cells (FINAL CELL MAPPING) ----
             challan_no = _read_cell(data, "C6")
-            challan_date = _read_cell(data, "C9")
+            challan_date = _read_cell(data, "C8")
             vehicle_no = _read_cell(data, "C15")
             invoice_date = _read_cell(data, "H59")
 
-            birds_age = _parse_number(_read_cell(data, "D12"))
-            birds_picked = _parse_number(_read_cell(data, "E12"))
+            birds_age = _parse_number(_read_cell(data, "C12"))
+            # Birds Picked = D12 + D14 (sum of both houses)
+            birds_picked = (
+                _parse_number(_read_cell(data, "D12"))
+                + _parse_number(_read_cell(data, "D14"))
+            )
             count_error = _parse_number(_read_cell(data, "D17"))
             doa = _parse_number(_read_cell(data, "D20"))
             rejected = _parse_number(_read_cell(data, "D21"))
@@ -299,7 +303,7 @@ def fetch_dashboard_data(sheet_names):
             # ---- Computed fields ----
             total_ce_doa_rjtd = abs(count_error) + doa + rejected
 
-            # Avg Weight / LB = (E16 - E17) / (D12 - D17)
+            # Avg Weight / LB = (E16 - E17) / (C12 - D17)
             avg_weight = 0.0
             denominator = birds_age - abs(count_error)
             if denominator != 0:
