@@ -301,7 +301,7 @@ def fetch_dashboard_data(sheet_names):
             total_weight = first_wt - second_wt
 
             # ---- Computed fields ----
-            total_ce_doa_rjtd = abs(count_error) + doa + rejected
+            total_ce_doa_rjtd = count_error + doa + rejected
 
             # Avg Weight / LB = (E16 - E17) / (C12 - D17)
             avg_weight = 0.0
@@ -706,12 +706,11 @@ with tab_dash:
             st.markdown("### 📋 Master Table")
 
             display_order = [
-                "Sl.No.", "Shipment #", "Challan No", "Challan Date", "Invoice Date",
-                "Vehicle No", "Birds Age", "Birds Picked", "Count Error", "DOA",
+                "Sl.No.", "Shipment #","Birds Age", "Birds Picked", "Count Error", "DOA",
                 "Rejected", "Total (CE+DOA+Rjtd)", "Birds Received (Net)",
                 "Final Weight (Processed)", "Invoice Amt", "Avg Weight / LB",
-                "Rate per Live Bird", "<=900gm (%)", ">=1000g (%)", "Yield %",
-                "1st Weight", "2nd Weight", "Weight (Total)"
+                "Rate per Live Bird", "<=900gm (%)", ">=1000g (%)", "Yield %",  "Invoice Date",
+                "1st Weight", "2nd Weight", "Weight (Total)","Vehicle No", "Challan No", "Challan Date",
             ]
 
             st.dataframe(
