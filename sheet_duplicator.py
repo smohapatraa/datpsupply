@@ -343,16 +343,6 @@ def fetch_dashboard_data(sheet_names):
 
     return pd.DataFrame(rows)
 
-def get_unique_columns(df, cols):
-    """Return deduplicated list of columns that exist in df."""
-    result = []
-    seen = set()
-    for c in cols:
-        if c in df.columns and c not in seen:
-            result.append(c)
-            seen.add(c)
-    return result
-
 # ============================================================
 # UI
 # ============================================================
@@ -407,7 +397,7 @@ with tab_dup:
         st.error("No sheets found. Verify spreadsheet ID and sharing.")
         st.stop()
 
-    st.info(f"📄 **Source sheet:** `{sheet_names[-1]}` — values will be read from here and written into the new copy.")
+    st.info(f"📄 **Source sheet:** `{sheet_names[-1]}`")
 
     with st.form("duplicate_form", clear_on_submit=False):
         new_sheet_name = st.text_input(
@@ -525,7 +515,6 @@ with tab_excel:
     st.subheader("📥 Import Range from Excel → Google Sheet")
     st.caption("Upload an Excel file, pick a sheet, and copy **C2:F38** into the selected Google Sheet's **A57:D93**.")
 
-    st.markdown("#### Step 1 — Upload Excel File")
     uploaded_file = st.file_uploader(
         "Choose an Excel file (.xlsx / .xls)",
         type=["xlsx", "xls"],
@@ -534,8 +523,6 @@ with tab_excel:
 
     if uploaded_file is not None:
         file_bytes = uploaded_file.getvalue()
-
-        st.markdown("#### Step 2 — Choose Sheet from Excel")
         excel_sheets = get_excel_sheet_names(file_bytes)
 
         if not excel_sheets:
@@ -558,8 +545,6 @@ with tab_excel:
                     key="gs_dest_sheet_select"
                 )
 
-            st.markdown("#### Step 3 — Preview")
-
             excel_df = read_excel_range(file_bytes, selected_excel_sheet, EXCEL_SOURCE_RANGE)
 
             col_prev1, col_prev2 = st.columns(2)
@@ -568,7 +553,6 @@ with tab_excel:
                 st.markdown(f"**Source: Excel `{selected_excel_sheet}` → {EXCEL_SOURCE_RANGE}**")
                 if not excel_df.empty:
                     st.dataframe(excel_df, use_container_width=True, height=350, hide_index=True)
-                    st.caption(f"📐 Shape: {excel_df.shape[0]} rows × {excel_df.shape[1]} cols")
                 else:
                     st.warning("No data found in source range.")
 
@@ -577,12 +561,8 @@ with tab_excel:
                 gs_current = read_gs_range(selected_gs_sheet, GS_DEST_RANGE)
                 if not gs_current.empty:
                     st.dataframe(gs_current, use_container_width=True, height=350, hide_index=True)
-                    st.caption(f"📐 Current: {gs_current.shape[0]} rows × {gs_current.shape[1]} cols")
                 else:
                     st.info("No current data — this range will be filled.")
-
-            st.markdown("#### Step 4 — Copy")
-            st.warning("⚠️ This will **overwrite** A57:D93 in the destination Google Sheet. Values only — no formatting.")
 
             confirm_copy = st.checkbox(
                 f"Yes, copy C2:F38 from `{selected_excel_sheet}` to A57:D93 in `{selected_gs_sheet}`",
@@ -599,7 +579,7 @@ with tab_excel:
                         with st.spinner(f"Writing to {selected_gs_sheet}!A57:D93..."):
                             write_gs_range(selected_gs_sheet, GS_DEST_RANGE, excel_df)
                         st.cache_data.clear()
-                        st.success(f"✅ Copied {excel_df.shape[0]} rows × {excel_df.shape[1]} cols from '{selected_excel_sheet}' to **{selected_gs_sheet}** (A57:D93)")
+                        st.success(f"✅ Copied to **{selected_gs_sheet}** (A57:D93)")
                         st.balloons()
                         st.rerun()
                     except Exception as e:
@@ -612,147 +592,82 @@ with tab_excel:
 # TAB 3: DASHBOARD
 # ============================================================
 with tab_dash:
-    # ---- Custom CSS ----
+    # ---- Compact CSS for full-width tables (screen-fit) ----
     st.markdown("""
     <style>
-        .report-title {
+        .report-header {
             background: linear-gradient(135deg, #0d47a1 0%, #1976d2 100%);
             color: white;
-            padding: 24px 30px;
-            border-radius: 14px;
+            padding: 18px 22px;
+            border-radius: 12px;
             text-align: center;
-            box-shadow: 0 4px 14px rgba(0,0,0,0.15);
-            margin-bottom: 20px;
+            margin-bottom: 18px;
         }
-        .report-title h1 {
-            margin: 0;
-            font-size: 26px;
-            letter-spacing: 0.5px;
-        }
-        .report-title p {
-            margin: 6px 0 0 0;
-            font-size: 13px;
-            opacity: 0.9;
-        }
-        .summary-card {
-            background: #f8f9fa;
-            border-left: 5px solid #1976d2;
-            padding: 16px 20px;
-            border-radius: 10px;
-            margin-bottom: 10px;
-        }
-        .summary-card .label {
-            font-size: 12px;
-            color: #666;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin: 0;
-        }
-        .summary-card .value {
-            font-size: 26px;
-            font-weight: 700;
-            color: #0d47a1;
-            margin: 4px 0 0 0;
-        }
-        .summary-card .unit {
-            font-size: 13px;
-            color: #888;
-            font-weight: 400;
-        }
-        .house-header {
-            background: linear-gradient(90deg, #e3f2fd 0%, #f1f8ff 100%);
-            border-left: 6px solid #1976d2;
-            padding: 14px 22px;
-            border-radius: 10px;
-            margin: 24px 0 14px 0;
-        }
-        .house-header h2 {
+        .report-header h1 {
             margin: 0;
             font-size: 20px;
-            color: #0d47a1;
+            letter-spacing: 0.5px;
         }
-        .house-header .stats {
-            font-size: 13px;
-            color: #555;
-            margin-top: 6px;
+        .report-header p {
+            margin: 4px 0 0 0;
+            font-size: 12px;
+            opacity: 0.9;
         }
-        .house-header .stats b {
-            color: #0d47a1;
-        }
-        .total-row {
-            background: #e8f4fd;
-            border-left: 5px solid #1976d2;
-            padding: 14px 20px;
-            border-radius: 8px;
-            margin: 10px 0;
-            font-size: 14px;
-            color: #0d47a1;
-        }
-        .total-row b {
-            color: #0d47a1;
-            font-size: 15px;
-        }
-        .final-row {
-            background: linear-gradient(135deg, #fff8e1 0%, #ffecb3 100%);
-            border-left: 6px solid #ffa000;
-            padding: 18px 24px;
-            border-radius: 10px;
-            margin: 14px 0 24px 0;
-            box-shadow: 0 2px 8px rgba(255,160,0,0.15);
-        }
-        .final-row .final-label {
-            font-size: 15px;
-            color: #6d4c00;
+        .house-title {
+            background: linear-gradient(90deg, #1976d2 0%, #2196f3 100%);
+            color: white;
+            padding: 10px 18px;
+            border-radius: 10px 10px 0 0;
+            font-size: 16px;
             font-weight: 700;
             letter-spacing: 0.5px;
-            margin: 0 0 8px 0;
         }
-        .final-row .final-stat {
-            display: inline-block;
-            margin-right: 28px;
-            font-size: 14px;
-            color: #333;
-        }
-        .final-row .final-stat b {
-            font-size: 16px;
+        .subtotal-title {
+            background: #e8f4fd;
             color: #0d47a1;
+            padding: 8px 18px;
+            font-size: 13px;
+            font-weight: 700;
+            border-left: 5px solid #1976d2;
+            border-right: 5px solid #1976d2;
+            letter-spacing: 1px;
         }
-        .grand-total {
+        .final-title {
+            background: linear-gradient(90deg, #ffa000 0%, #ffb300 100%);
+            color: white;
+            padding: 10px 18px;
+            font-size: 15px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-align: center;
+            border-radius: 0;
+        }
+        .grand-total-header {
             background: linear-gradient(135deg, #0d47a1 0%, #1976d2 100%);
             color: white;
-            padding: 28px 32px;
-            border-radius: 14px;
-            box-shadow: 0 6px 20px rgba(13,71,161,0.25);
-            margin-top: 30px;
+            padding: 18px 24px;
+            border-radius: 12px;
+            text-align: center;
+            margin-top: 20px;
+            margin-bottom: 12px;
         }
-        .grand-total h2 {
-            margin: 0 0 18px 0;
-            font-size: 22px;
-            letter-spacing: 0.5px;
+        .grand-total-header h2 {
+            margin: 0;
+            font-size: 20px;
+            letter-spacing: 1px;
         }
-        .grand-total .stat {
-            display: inline-block;
-            margin-right: 40px;
-            vertical-align: top;
-        }
-        .grand-total .stat .lbl {
-            font-size: 12px;
-            opacity: 0.8;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        .grand-total .stat .val {
-            font-size: 28px;
-            font-weight: 700;
-            margin-top: 4px;
+        /* Compact dataframe cells for screen fit */
+        .stDataFrame td, .stDataFrame th {
+            font-size: 11px !important;
+            padding: 4px 6px !important;
         }
     </style>
     """, unsafe_allow_html=True)
 
     st.markdown(f"""
-    <div class="report-title">
-        <h1>📊 SLAUGHTER REPORT DASHBOARD</h1>
-        <p>Sohar Poultry Company (S.A.O.C) &nbsp;•&nbsp; Processing Plant &nbsp;•&nbsp; {_ist_now().strftime('%d %b %Y · %H:%M IST')}</p>
+    <div class="report-header">
+        <h1>📊 SLAUGHTER REPORT — CYCLE 13</h1>
+        <p>Sohar Poultry Company (S.A.O.C) · {_ist_now().strftime('%d %b %Y · %H:%M IST')}</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -773,285 +688,264 @@ with tab_dash:
         else:
             df_dash.insert(0, "Sl.No.", range(1, len(df_dash) + 1))
 
-            # ---- Overall Summary ----
-            st.markdown("### 📈 Overall Summary")
+            # ---- Display columns (compact, fit width) ----
+            display_cols = [
+                "Shipment #", "Birds Age", "Birds Picked", "Count Error", "DOA",
+                "Rejected", "Total (CE+DOA+Rjtd)", "Birds Received (Net)",
+                "Final Weight (Processed)", "Invoice Amt", "Avg Weight / LB",
+                "Rate per Live Bird", "<=900gm (%)", ">=1000g (%)", "Yield %"
+            ]
 
+            # ---- Overall banner ----
             total_challans = len(df_dash)
             total_birds = df_dash["Birds Received (Net)"].sum()
             total_weight = df_dash["Final Weight (Processed)"].sum()
             total_revenue = df_dash["Invoice Amt"].sum()
-            total_doa = df_dash["DOA"].sum()
-            avg_yield = df_dash["Yield %"].mean()
 
-            col1, col2, col3, col4, col5, col6 = st.columns(6)
+            st.markdown(f"""
+            <div style="text-align:center; padding: 10px 0 18px 0;">
+                <span style="display:inline-block; margin: 4px; padding: 6px 14px;
+                            background: #f0f7ff; border-radius: 20px; font-size: 12px; color: #0d47a1;">
+                    <b>{total_challans}</b> Challans
+                </span>
+                <span style="display:inline-block; margin: 4px; padding: 6px 14px;
+                            background: #f0f7ff; border-radius: 20px; font-size: 12px; color: #0d47a1;">
+                    <b>{total_birds:,.0f}</b> Birds
+                </span>
+                <span style="display:inline-block; margin: 4px; padding: 6px 14px;
+                            background: #f0f7ff; border-radius: 20px; font-size: 12px; color: #0d47a1;">
+                    <b>{total_weight:,.1f}</b> kg
+                </span>
+                <span style="display:inline-block; margin: 4px; padding: 6px 14px;
+                            background: #f0f7ff; border-radius: 20px; font-size: 12px; color: #0d47a1;">
+                    <b>OMR {total_revenue:,.2f}</b>
+                </span>
+            </div>
+            """, unsafe_allow_html=True)
 
-            cards = [
-                ("📋 Challans", f"{total_challans:,}", ""),
-                ("🐔 Birds (Net)", f"{total_birds:,.0f}", ""),
-                ("⚖️ Weight", f"{total_weight:,.1f}", "kg"),
-                ("💰 Revenue", f"{total_revenue:,.2f}", "OMR"),
-                ("💀 DOA", f"{total_doa:,.0f}", ""),
-                ("📊 Avg Yield", f"{avg_yield:.2f}", "%"),
-            ]
-
-            for col, (label, value, unit) in zip([col1, col2, col3, col4, col5, col6], cards):
-                with col:
-                    st.markdown(f"""
-                    <div class="summary-card">
-                        <p class="label">{label}</p>
-                        <p class="value">{value} <span class="unit">{unit}</span></p>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-            # ---- House-wise report ----
+            # ---- House-wise ----
             df_dash["House #"] = df_dash["House #"].astype(str).str.strip()
             house_values = sorted(
                 [h for h in df_dash["House #"].unique() if h and h not in ("", "0", "nan")],
                 key=lambda x: (int(x) if x.isdigit() else 9999)
             )
 
-            display_order = [
-                "Sl.No.", "Shipment #", "Birds Age", "Birds Picked", "Count Error",
-                "DOA", "Rejected", "Total (CE+DOA+Rjtd)", "Birds Received (Net)",
-                "Final Weight (Processed)", "Invoice Amt", "Avg Weight / LB",
-                "Rate per Live Bird", "<=900gm (%)", ">=1000g (%)", "Yield %",
-                "1st Weight", "2nd Weight", "Weight (Total)"
-            ]
-
             if "adjustments" not in st.session_state:
                 st.session_state.adjustments = {}
 
-            st.markdown("---")
-            st.markdown("### 🏠 House-Wise Report")
+            # Track grand totals
+            grand_final_birds = 0.0
+            grand_final_weight = 0.0
+            grand_final_amount = 0.0
 
-            # Grand total trackers
-            grand_birds = total_birds
-            grand_weight = total_weight
-            grand_amount = total_revenue
-            grand_adj_birds = 0.0
-            grand_adj_weight = 0.0
-            grand_adj_amount = 0.0
+            # Numerical columns for subtotal/final total rows
+            num_cols = [
+                "Birds Age", "Birds Picked", "Count Error", "DOA", "Rejected",
+                "Total (CE+DOA+Rjtd)", "Birds Received (Net)",
+                "Final Weight (Processed)", "Invoice Amt", "Avg Weight / LB",
+                "Rate per Live Bird", "<=900gm (%)", ">=1000g (%)", "Yield %"
+            ]
 
             for h in house_values:
                 df_h = df_dash[df_dash["House #"] == h].copy()
                 if df_h.empty:
                     continue
 
-                h_birds = df_h["Birds Received (Net)"].sum()
-                h_weight = df_h["Final Weight (Processed)"].sum()
-                h_amount = df_h["Invoice Amt"].sum()
-
-                # House header
-                st.markdown(f"""
-                <div class="house-header">
-                    <h2>🏠 HOUSE #{h}</h2>
-                    <div class="stats">
-                        <b>{len(df_h)}</b> challans &nbsp;·&nbsp;
-                        <b>{h_birds:,.0f}</b> birds &nbsp;·&nbsp;
-                        <b>{h_weight:,.1f}</b> kg &nbsp;·&nbsp;
-                        <b>OMR {h_amount:,.2f}</b>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-                # Detail table — deduplicated columns
-                safe_cols = get_unique_columns(df_h, display_order)
-                st.dataframe(
-                    df_h[safe_cols],
-                    use_container_width=True,
-                    height=min(280, 35 * len(df_h) + 40),
-                    hide_index=True,
-                    column_config={
-                        "Birds Age": st.column_config.NumberColumn(format="%.2f"),
-                        "Birds Picked": st.column_config.NumberColumn(format="%d"),
-                        "Count Error": st.column_config.NumberColumn(format="%d"),
-                        "DOA": st.column_config.NumberColumn(format="%d"),
-                        "Rejected": st.column_config.NumberColumn(format="%d"),
-                        "Total (CE+DOA+Rjtd)": st.column_config.NumberColumn(format="%d"),
-                        "Birds Received (Net)": st.column_config.NumberColumn(format="%d"),
-                        "Final Weight (Processed)": st.column_config.NumberColumn(format="%.1f"),
-                        "Invoice Amt": st.column_config.NumberColumn(format="%.2f"),
-                        "Avg Weight / LB": st.column_config.NumberColumn(format="%.3f"),
-                        "Rate per Live Bird": st.column_config.NumberColumn(format="%.3f"),
-                        "<=900gm (%)": st.column_config.NumberColumn(format="%.2f%%"),
-                        ">=1000g (%)": st.column_config.NumberColumn(format="%.2f%%"),
-                        "Yield %": st.column_config.NumberColumn(format="%.2f%%"),
-                    }
+                # House title
+                st.markdown(
+                    f'<div class="house-title">🏠 HOUSE #{h} &nbsp;·&nbsp; {len(df_h)} challans</div>',
+                    unsafe_allow_html=True
                 )
 
-                # Total row
-                house_totals = {
-                    "birds": df_h["Birds Received (Net)"].sum(),
-                    "weight": df_h["Final Weight (Processed)"].sum(),
-                    "amount": df_h["Invoice Amt"].sum(),
-                    "picked": df_h["Birds Picked"].sum(),
-                    "doa": df_h["DOA"].sum(),
-                }
+                # ---- DETAIL TABLE ----
+                st.dataframe(
+                    df_h[display_cols],
+                    use_container_width=True,
+                    height=min(220, 32 * len(df_h) + 40),
+                    hide_index=True,
+                )
 
-                st.markdown(f"""
-                <div class="total-row">
-                    <b>🟦 TOTAL FOR HOUSE #{h}:</b> &nbsp;
-                    Birds Picked: <b>{house_totals['picked']:,.0f}</b> &nbsp;·&nbsp;
-                    DOA: <b>{house_totals['doa']:,.0f}</b> &nbsp;·&nbsp;
-                    Birds Received: <b>{house_totals['birds']:,.0f}</b> &nbsp;·&nbsp;
-                    Weight: <b>{house_totals['weight']:,.1f} kg</b> &nbsp;·&nbsp;
-                    Revenue: <b>OMR {house_totals['amount']:,.2f}</b>
-                </div>
-                """, unsafe_allow_html=True)
+                # ---- SUBTOTAL ROW ----
+                subtotal = {}
+                for c in num_cols:
+                    if c in df_h.columns:
+                        subtotal[c] = df_h[c].sum()
+                    else:
+                        subtotal[c] = 0.0
 
-                # Adjustments (optional)
-                with st.expander(f"⚙️ Optional Adjustments for House #{h}", expanded=False):
-                    st.caption("Leave blank if no adjustment.")
+                subtotal_df = pd.DataFrame([{
+                    "Shipment #": "SUBTOTAL",
+                    **{c: subtotal[c] for c in num_cols}
+                }])
+
+                st.markdown(
+                    '<div class="subtotal-title">🟦 SUBTOTAL — HOUSE #' + h + '</div>',
+                    unsafe_allow_html=True
+                )
+                st.dataframe(
+                    subtotal_df[display_cols],
+                    use_container_width=True,
+                    hide_index=True,
+                    height=45,
+                )
+
+                # ---- ADJUSTMENTS (ALL COLUMNS) ----
+                with st.expander(f"⚙️ Adjustments for House #{h} (optional)", expanded=False):
+                    st.caption("Fill only the rows you need. All columns available.")
 
                     if h not in st.session_state.adjustments:
-                        st.session_state.adjustments[h] = [
-                            {"Particulars": "", "Birds": 0.0, "Weight": 0.0, "Amount": 0.0}
-                            for _ in range(4)
+                        st.session_state.adjustments[h] = []
+
+                    # Number of adjustment rows
+                    num_adjust_rows = 4
+
+                    # Ensure the session state has enough rows
+                    while len(st.session_state.adjustments[h]) < num_adjust_rows:
+                        st.session_state.adjustments[h].append({
+                            "Shipment #": "",
+                            "Birds Age": 0.0,
+                            "Birds Picked": 0.0,
+                            "Count Error": 0.0,
+                            "DOA": 0.0,
+                            "Rejected": 0.0,
+                            "Total (CE+DOA+Rjtd)": 0.0,
+                            "Birds Received (Net)": 0.0,
+                            "Final Weight (Processed)": 0.0,
+                            "Invoice Amt": 0.0,
+                            "Avg Weight / LB": 0.0,
+                            "Rate per Live Bird": 0.0,
+                            "<=900gm (%)": 0.0,
+                            ">=1000g (%)": 0.0,
+                            "Yield %": 0.0,
+                        })
+
+                    # Header
+                    hcols = st.columns([2.2, 0.8, 0.9, 0.8, 0.7, 0.7, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.8])
+                    headers = [
+                        "Shipment #", "Age", "Picked", "CE", "DOA", "Rej",
+                        "Total", "Recvd", "Weight", "Amt", "Avg/LB",
+                        "Rate/LB", "<=900", ">=1000", "Yield"
+                    ]
+                    for hc, htext in zip(hcols, headers):
+                        with hc:
+                            st.markdown(f"**{htext}**")
+
+                    # Input rows
+                    for i in range(num_adjust_rows):
+                        row_cols = st.columns([2.2, 0.8, 0.9, 0.8, 0.7, 0.7, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.8])
+                        keys = [
+                            "Shipment #", "Birds Age", "Birds Picked", "Count Error",
+                            "DOA", "Rejected", "Total (CE+DOA+Rjtd)", "Birds Received (Net)",
+                            "Final Weight (Processed)", "Invoice Amt", "Avg Weight / LB",
+                            "Rate per Live Bird", "<=900gm (%)", ">=1000g (%)", "Yield %"
                         ]
+                        for col_ui, key in zip(row_cols, keys):
+                            with col_ui:
+                                if key == "Shipment #":
+                                    st.session_state.adjustments[h][i][key] = st.text_input(
+                                        f"adj_{h}_{i}_{key}",
+                                        value=st.session_state.adjustments[h][i][key],
+                                        key=f"adj_{h}_{i}_{key}",
+                                        label_visibility="collapsed",
+                                        placeholder="—"
+                                    )
+                                else:
+                                    st.session_state.adjustments[h][i][key] = st.number_input(
+                                        f"adj_{h}_{i}_{key}",
+                                        value=float(st.session_state.adjustments[h][i][key]),
+                                        step=0.01,
+                                        key=f"adj_{h}_{i}_{key}",
+                                        label_visibility="collapsed"
+                                    )
 
-                    hc1, hc2, hc3, hc4 = st.columns([3, 1, 1, 1])
-                    with hc1:
-                        st.markdown("**Particulars**")
-                    with hc2:
-                        st.markdown("**Birds**")
-                    with hc3:
-                        st.markdown("**Weight (kg)**")
-                    with hc4:
-                        st.markdown("**Amount (OMR)**")
+                # ---- FINAL TOTAL = SUBTOTAL + ADJUSTMENTS ----
+                adj_row_sums = {}
+                for c in num_cols:
+                    total = 0.0
+                    for adj_row in st.session_state.adjustments[h]:
+                        if c in adj_row:
+                            try:
+                                total += float(adj_row[c])
+                            except Exception:
+                                pass
+                    adj_row_sums[c] = total
 
-                    for i in range(4):
-                        col_a, col_b, col_c, col_d = st.columns([3, 1, 1, 1])
-                        with col_a:
-                            st.session_state.adjustments[h][i]["Particulars"] = st.text_input(
-                                f"Adj {i+1}",
-                                value=st.session_state.adjustments[h][i]["Particulars"],
-                                key=f"adj_part_{h}_{i}",
-                                placeholder="—",
-                                label_visibility="collapsed"
-                            )
-                        with col_b:
-                            st.session_state.adjustments[h][i]["Birds"] = st.number_input(
-                                f"Birds {i+1}",
-                                value=st.session_state.adjustments[h][i]["Birds"],
-                                step=1.0,
-                                key=f"adj_birds_{h}_{i}",
-                                label_visibility="collapsed"
-                            )
-                        with col_c:
-                            st.session_state.adjustments[h][i]["Weight"] = st.number_input(
-                                f"Weight {i+1}",
-                                value=st.session_state.adjustments[h][i]["Weight"],
-                                step=0.1,
-                                key=f"adj_weight_{h}_{i}",
-                                label_visibility="collapsed"
-                            )
-                        with col_d:
-                            st.session_state.adjustments[h][i]["Amount"] = st.number_input(
-                                f"Amount {i+1}",
-                                value=st.session_state.adjustments[h][i]["Amount"],
-                                step=0.01,
-                                key=f"adj_amt_{h}_{i}",
-                                label_visibility="collapsed"
-                            )
+                final_row = {
+                    "Shipment #": f"FINAL TOTAL — HOUSE #{h}",
+                    **{c: subtotal[c] + adj_row_sums[c] for c in num_cols}
+                }
+                final_df = pd.DataFrame([final_row])
 
-                # Compute adjustments
-                adj_birds = sum(a["Birds"] for a in st.session_state.adjustments[h])
-                adj_weight = sum(a["Weight"] for a in st.session_state.adjustments[h])
-                adj_amount = sum(a["Amount"] for a in st.session_state.adjustments[h])
+                st.markdown(
+                    f'<div class="final-title">🎯 FINAL TOTAL — HOUSE #{h}</div>',
+                    unsafe_allow_html=True
+                )
+                st.dataframe(
+                    final_df[display_cols],
+                    use_container_width=True,
+                    hide_index=True,
+                    height=45,
+                )
 
-                final_birds = house_totals["birds"] + adj_birds
-                final_weight = house_totals["weight"] + adj_weight
-                final_amount = house_totals["amount"] + adj_amount
+                # Track grand totals
+                grand_final_birds += final_row["Birds Received (Net)"]
+                grand_final_weight += final_row["Final Weight (Processed)"]
+                grand_final_amount += final_row["Invoice Amt"]
 
-                adj_note = ""
-                if adj_birds or adj_weight or adj_amount:
-                    adj_note = f'<br><small style="color: #856404;">Adjustments: +{adj_birds:,.0f} birds · +{adj_weight:,.1f} kg · +OMR {adj_amount:,.2f}</small>'
+                st.markdown("<br>", unsafe_allow_html=True)
 
-                st.markdown(f"""
-                <div class="final-row">
-                    <p class="final-label">🟨 FINAL TOTAL — HOUSE #{h}</p>
-                    <span class="final-stat">Birds Received: <b>{final_birds:,.0f}</b></span>
-                    <span class="final-stat">Weight: <b>{final_weight:,.1f} kg</b></span>
-                    <span class="final-stat">Revenue: <b>OMR {final_amount:,.2f}</b></span>
-                    {adj_note}
-                </div>
-                """, unsafe_allow_html=True)
-
-                # Update grand total
-                grand_birds = grand_birds - house_totals["birds"] + final_birds
-                grand_weight = grand_weight - house_totals["weight"] + final_weight
-                grand_amount = grand_amount - house_totals["amount"] + final_amount
-                grand_adj_birds += adj_birds
-                grand_adj_weight += adj_weight
-                grand_adj_amount += adj_amount
-
-            # ---- Grand Total ----
-            adj_block = ""
-            if grand_adj_birds or grand_adj_weight or grand_adj_amount:
-                adj_block = f'<div class="stat"><div class="lbl">Adjustments</div><div class="val">+{grand_adj_birds:,.0f} b · +{grand_adj_weight:,.1f} kg · +OMR {grand_adj_amount:,.2f}</div></div>'
-
-            st.markdown(f"""
-            <div class="grand-total">
+            # ---- GRAND TOTAL ----
+            st.markdown("""
+            <div class="grand-total-header">
                 <h2>🌐 GRAND TOTAL — ALL HOUSES</h2>
-                <div class="stat">
-                    <div class="lbl">Total Birds (Net)</div>
-                    <div class="val">{grand_birds:,.0f}</div>
-                </div>
-                <div class="stat">
-                    <div class="lbl">Total Weight</div>
-                    <div class="val">{grand_weight:,.1f} kg</div>
-                </div>
-                <div class="stat">
-                    <div class="lbl">Total Revenue</div>
-                    <div class="val">OMR {grand_amount:,.2f}</div>
-                </div>
-                {adj_block}
             </div>
             """, unsafe_allow_html=True)
 
-            # ---- Master Table ----
-            st.markdown("---")
-            st.markdown("### 📋 Full Master Table")
-
-            # SAFE deduplication to prevent the ValueError
-            master_display = get_unique_columns(
-                df_dash,
-                ["Sl.No.", "Shipment #", "House #"] + display_order
-            )
+            grand_df = pd.DataFrame([{
+                "Shipment #": "GRAND TOTAL",
+                "Birds Age": "",
+                "Birds Picked": df_dash["Birds Picked"].sum(),
+                "Count Error": df_dash["Count Error"].sum(),
+                "DOA": df_dash["DOA"].sum(),
+                "Rejected": df_dash["Rejected"].sum(),
+                "Total (CE+DOA+Rjtd)": df_dash["Total (CE+DOA+Rjtd)"].sum(),
+                "Birds Received (Net)": grand_final_birds,
+                "Final Weight (Processed)": grand_final_weight,
+                "Invoice Amt": grand_final_amount,
+                "Avg Weight / LB": "",
+                "Rate per Live Bird": "",
+                "<=900gm (%)": "",
+                ">=1000g (%)": "",
+                "Yield %": "",
+            }])
 
             st.dataframe(
-                df_dash[master_display],
+                grand_df[display_cols],
                 use_container_width=True,
-                height=500,
                 hide_index=True,
-                column_config={
-                    "Birds Age": st.column_config.NumberColumn(format="%.2f"),
-                    "Birds Picked": st.column_config.NumberColumn(format="%d"),
-                    "Count Error": st.column_config.NumberColumn(format="%d"),
-                    "DOA": st.column_config.NumberColumn(format="%d"),
-                    "Rejected": st.column_config.NumberColumn(format="%d"),
-                    "Total (CE+DOA+Rjtd)": st.column_config.NumberColumn(format="%d"),
-                    "Birds Received (Net)": st.column_config.NumberColumn(format="%d"),
-                    "Final Weight (Processed)": st.column_config.NumberColumn(format="%.1f"),
-                    "Invoice Amt": st.column_config.NumberColumn(format="%.2f"),
-                    "Avg Weight / LB": st.column_config.NumberColumn(format="%.3f"),
-                    "Rate per Live Bird": st.column_config.NumberColumn(format="%.3f"),
-                    "<=900gm (%)": st.column_config.NumberColumn(format="%.2f%%"),
-                    ">=1000g (%)": st.column_config.NumberColumn(format="%.2f%%"),
-                    "Yield %": st.column_config.NumberColumn(format="%.2f%%"),
-                }
+                height=45,
             )
 
-            # ---- Export ----
-            st.markdown("### 📥 Export")
-            csv_data = df_dash[master_display].to_csv(index=False).encode("utf-8")
-            st.download_button(
-                "📥 Download Master Table (CSV)",
-                data=csv_data,
-                file_name=f"dashboard_master_{_ist_today()}.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
+            # ---- Master table (collapsed) ----
+            st.markdown("---")
+            with st.expander("📋 Full Master Table (all challans)", expanded=False):
+                master_cols = ["Sl.No.", "House #"] + display_cols
+                master_cols = [c for c in master_cols if c in df_dash.columns]
+                st.dataframe(
+                    df_dash[master_cols],
+                    use_container_width=True,
+                    height=500,
+                    hide_index=True,
+                )
+
+                csv_data = df_dash[master_cols].to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    "📥 Download Master Table (CSV)",
+                    data=csv_data,
+                    file_name=f"dashboard_master_{_ist_today()}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
 
 # ------------------------------------------------------------
 # FOOTER
