@@ -226,7 +226,6 @@ def delete_sheet(sheet_name):
 # DASHBOARD HELPERS
 # ============================================================
 def _cell_to_indices(cell):
-    """Convert A1 notation to (row_index, col_index) — 0-based."""
     col_letters = "".join(c for c in cell if c.isalpha())
     row_num = int("".join(c for c in cell if c.isdigit()))
     col_idx = 0
@@ -235,7 +234,6 @@ def _cell_to_indices(cell):
     return row_num - 1, col_idx - 1
 
 def _read_cell(data, cell):
-    """Read a cell from a 2D array using A1 notation."""
     try:
         r, c = _cell_to_indices(cell)
         if r < len(data) and c < len(data[r]):
@@ -245,7 +243,6 @@ def _read_cell(data, cell):
         return ""
 
 def _parse_number(value):
-    """Parse a numeric value; handle (45) as -45, X as 0."""
     if not value or value in ("-", "X", "x", "", "N/A"):
         return 0.0
     cleaned = str(value).replace(",", "").replace("%", "").strip()
@@ -261,7 +258,6 @@ def _parse_number(value):
 
 @st.cache_data(ttl=120, show_spinner=False)
 def fetch_dashboard_data(sheet_names):
-    """Loop through all sheets and build the master DataFrame."""
     ss = get_spreadsheet()
     rows = []
 
@@ -276,14 +272,14 @@ def fetch_dashboard_data(sheet_names):
             if not data or len(data) < 30:
                 continue
 
-            # ---- Read individual cells (FINAL CELL MAPPING) ----
+            # ---- Read cells ----
             challan_no = _read_cell(data, "C6")
             challan_date = _read_cell(data, "C8")
+            house_no = _read_cell(data, "C11")
             vehicle_no = _read_cell(data, "C15")
             invoice_date = _read_cell(data, "H59")
 
             birds_age = _parse_number(_read_cell(data, "C12"))
-            # Birds Picked = D12 + D14 (sum of both houses)
             birds_picked = (
                 _parse_number(_read_cell(data, "D12"))
                 + _parse_number(_read_cell(data, "D14"))
@@ -300,32 +296,27 @@ def fetch_dashboard_data(sheet_names):
             second_wt = _parse_number(_read_cell(data, "E17"))
             total_weight = first_wt - second_wt
 
-            # ---- Computed fields ----
+            # ---- Computed ----
             total_ce_doa_rjtd = count_error + doa + rejected
 
-            # Avg Weight / LB = (E16 - E17) / (C12 - D17)
             avg_weight = 0.0
             denominator = birds_age - abs(count_error)
             if denominator != 0:
                 avg_weight = (first_wt - second_wt) / denominator
 
-            # <=900gm (%) = SUM(E33:E38)
             le_900 = sum(_parse_number(_read_cell(data, f"E{r}")) for r in range(33, 39))
-
-            # >=1000g (%) = 100% - SUM(E33:E38)
             ge_1000 = 1.0 - le_900 if le_900 <= 1 else 100 - le_900
 
-            # Yield % = E25 / (E16 - E17)
             yield_pct = 0.0
             if total_weight != 0:
                 yield_pct = final_weight / total_weight
 
-            # Skip empty sheets
             if not challan_no and birds_received == 0:
                 continue
 
             rows.append({
                 "Shipment #": name,
+                "House #": house_no,
                 "Challan No": challan_no,
                 "Challan Date": challan_date,
                 "Invoice Date": invoice_date,
@@ -487,7 +478,6 @@ with tab_dup:
             except Exception as e:
                 st.error(f"❌ Failed to create sheet: {e}")
 
-    # Existing sheets list
     st.divider()
     st.subheader("📚 Existing Sheets")
 
@@ -614,28 +604,174 @@ with tab_excel:
 # TAB 3: DASHBOARD
 # ============================================================
 with tab_dash:
-    st.subheader("📊 Slaughter Report Dashboard")
-    st.caption("Master view across all invoice sheets — reads specific cells from each sheet.")
+    # ---- Custom CSS for a polished report ----
+    st.markdown("""
+    <style>
+        .report-title {
+            background: linear-gradient(135deg, #0d47a1 0%, #1976d2 100%);
+            color: white;
+            padding: 24px 30px;
+            border-radius: 14px;
+            text-align: center;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.15);
+            margin-bottom: 20px;
+        }
+        .report-title h1 {
+            margin: 0;
+            font-size: 26px;
+            letter-spacing: 0.5px;
+        }
+        .report-title p {
+            margin: 6px 0 0 0;
+            font-size: 13px;
+            opacity: 0.9;
+        }
+        .summary-card {
+            background: #f8f9fa;
+            border-left: 5px solid #1976d2;
+            padding: 16px 20px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+        }
+        .summary-card .label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin: 0;
+        }
+        .summary-card .value {
+            font-size: 26px;
+            font-weight: 700;
+            color: #0d47a1;
+            margin: 4px 0 0 0;
+        }
+        .summary-card .unit {
+            font-size: 13px;
+            color: #888;
+            font-weight: 400;
+        }
+        .house-header {
+            background: linear-gradient(90deg, #e3f2fd 0%, #f1f8ff 100%);
+            border-left: 6px solid #1976d2;
+            padding: 14px 22px;
+            border-radius: 10px;
+            margin: 24px 0 14px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .house-header h2 {
+            margin: 0;
+            font-size: 20px;
+            color: #0d47a1;
+        }
+        .house-header .stats {
+            font-size: 13px;
+            color: #555;
+            text-align: right;
+        }
+        .house-header .stats b {
+            color: #0d47a1;
+        }
+        .total-row {
+            background: #e8f4fd;
+            border-left: 5px solid #1976d2;
+            padding: 14px 20px;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-size: 14px;
+            color: #0d47a1;
+        }
+        .total-row b {
+            color: #0d47a1;
+            font-size: 15px;
+        }
+        .final-row {
+            background: linear-gradient(135deg, #fff8e1 0%, #ffecb3 100%);
+            border-left: 6px solid #ffa000;
+            padding: 18px 24px;
+            border-radius: 10px;
+            margin: 14px 0 24px 0;
+            box-shadow: 0 2px 8px rgba(255,160,0,0.15);
+        }
+        .final-row .final-label {
+            font-size: 15px;
+            color: #6d4c00;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            margin: 0 0 8px 0;
+        }
+        .final-row .final-stat {
+            display: inline-block;
+            margin-right: 28px;
+            font-size: 14px;
+            color: #333;
+        }
+        .final-row .final-stat b {
+            font-size: 16px;
+            color: #0d47a1;
+        }
+        .grand-total {
+            background: linear-gradient(135deg, #0d47a1 0%, #1976d2 100%);
+            color: white;
+            padding: 28px 32px;
+            border-radius: 14px;
+            box-shadow: 0 6px 20px rgba(13,71,161,0.25);
+            margin-top: 30px;
+        }
+        .grand-total h2 {
+            margin: 0 0 18px 0;
+            font-size: 22px;
+            letter-spacing: 0.5px;
+        }
+        .grand-total .stat {
+            display: inline-block;
+            margin-right: 40px;
+        }
+        .grand-total .stat .lbl {
+            font-size: 12px;
+            opacity: 0.8;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .grand-total .stat .val {
+            font-size: 28px;
+            font-weight: 700;
+            margin-top: 4px;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # ---- Report Header ----
+    st.markdown(f"""
+    <div class="report-title">
+        <h1>📊 SLAUGHTER REPORT DASHBOARD</h1>
+        <p>Sohar Poultry Company (S.A.O.C) &nbsp;•&nbsp; Processing Plant &nbsp;•&nbsp; {_ist_now().strftime('%d %b %Y · %H:%M IST')}</p>
+    </div>
+    """, unsafe_allow_html=True)
 
     if not sheet_names:
         st.error("No sheets found.")
     else:
-        if st.button("🔄 Load / Refresh Dashboard", type="primary", use_container_width=True):
-            st.cache_data.clear()
+        col_r1, col_r2 = st.columns([3, 1])
+        with col_r2:
+            if st.button("🔄 Refresh Report", type="primary", use_container_width=True):
+                st.cache_data.clear()
+                st.session_state.pop("adjustments", None)
 
-        with st.spinner("Reading all sheets... this may take 30–60 seconds the first time."):
+        with st.spinner("Reading all sheets..."):
             df_dash = fetch_dashboard_data(tuple(sheet_names))
 
         if df_dash.empty:
-            st.warning("No data found. Check that your sheets contain values in the expected cells.")
+            st.warning("No data found.")
         else:
-            # Add Sl.No.
             df_dash.insert(0, "Sl.No.", range(1, len(df_dash) + 1))
 
             # --------------------------------------------------------
-            # SUMMARY CARDS
+            # OVERALL SUMMARY
             # --------------------------------------------------------
-            st.markdown("### 📈 Summary")
+            st.markdown("### 📈 Overall Summary")
 
             total_challans = len(df_dash)
             total_birds = df_dash["Birds Received (Net)"].sum()
@@ -646,170 +782,114 @@ with tab_dash:
 
             col1, col2, col3, col4, col5, col6 = st.columns(6)
 
-            with col1:
-                st.metric("📋 Challans", f"{total_challans:,}")
-            with col2:
-                st.metric("🐔 Birds (Net)", f"{total_birds:,.0f}")
-            with col3:
-                st.metric("⚖️ Weight (kg)", f"{total_weight:,.1f}")
-            with col4:
-                st.metric("💰 Revenue (OMR)", f"{total_revenue:,.2f}")
-            with col5:
-                st.metric("💀 DOA Total", f"{total_doa:,.0f}")
-            with col6:
-                st.metric("📊 Avg Yield %", f"{avg_yield:.2f}%")
-
-            # --------------------------------------------------------
-            # FILTERS
-            # --------------------------------------------------------
-            st.markdown("### 🔍 Filters")
-
-            col_f1, col_f2, col_f3 = st.columns(3)
-
-            with col_f1:
-                date_from = st.date_input("From Date", value=None, key="dash_from")
-            with col_f2:
-                date_to = st.date_input("To Date", value=None, key="dash_to")
-            with col_f3:
-                vehicle_filter = st.text_input("Vehicle No (contains)", key="dash_vehicle")
-
-            df_filtered = df_dash.copy()
-
-            if "Challan Date" in df_filtered.columns:
-                df_filtered["_parsed_date"] = pd.to_datetime(
-                    df_filtered["Challan Date"], errors="coerce", dayfirst=True
-                )
-
-                if date_from:
-                    df_filtered = df_filtered[
-                        df_filtered["_parsed_date"].dt.date >= date_from
-                    ]
-                if date_to:
-                    df_filtered = df_filtered[
-                        df_filtered["_parsed_date"].dt.date <= date_to
-                    ]
-
-                df_filtered = df_filtered.drop(columns=["_parsed_date"])
-
-            if vehicle_filter:
-                df_filtered = df_filtered[
-                    df_filtered["Vehicle No"].astype(str).str.contains(
-                        vehicle_filter, case=False, na=False
-                    )
-                ]
-
-            st.caption(f"Showing **{len(df_filtered)}** of {len(df_dash)} rows")
-
-            # --------------------------------------------------------
-            # MASTER TABLE
-            # --------------------------------------------------------
-            st.markdown("### 📋 Master Table")
-
-            display_order = [
-                "Sl.No.", "Shipment #","Birds Age", "Birds Picked", "Count Error", "DOA",
-                "Rejected", "Total (CE+DOA+Rjtd)", "Birds Received (Net)",
-                "Final Weight (Processed)", "Invoice Amt", "Avg Weight / LB",
-                "Rate per Live Bird", "<=900gm (%)", ">=1000g (%)", "Yield %",  "Invoice Date",
-                "1st Weight", "2nd Weight", "Weight (Total)","Vehicle No", "Challan No", "Challan Date",
+            cards = [
+                ("📋 Challans", f"{total_challans:,}", ""),
+                ("🐔 Birds (Net)", f"{total_birds:,.0f}", ""),
+                ("⚖️ Weight", f"{total_weight:,.1f}", "kg"),
+                ("💰 Revenue", f"{total_revenue:,.2f}", "OMR"),
+                ("💀 DOA", f"{total_doa:,.0f}", ""),
+                ("📊 Avg Yield", f"{avg_yield:.2f}", "%"),
             ]
 
-            st.dataframe(
-                df_filtered[display_order],
-                use_container_width=True,
-                height=500,
-                hide_index=True,
-                column_config={
-                    "Birds Age": st.column_config.NumberColumn(format="%.2f"),
-                    "Birds Picked": st.column_config.NumberColumn(format="%d"),
-                    "Count Error": st.column_config.NumberColumn(format="%d"),
-                    "DOA": st.column_config.NumberColumn(format="%d"),
-                    "Rejected": st.column_config.NumberColumn(format="%d"),
-                    "Total (CE+DOA+Rjtd)": st.column_config.NumberColumn(format="%d"),
-                    "Birds Received (Net)": st.column_config.NumberColumn(format="%d"),
-                    "Final Weight (Processed)": st.column_config.NumberColumn(format="%.1f"),
-                    "Invoice Amt": st.column_config.NumberColumn(format="%.2f"),
-                    "Avg Weight / LB": st.column_config.NumberColumn(format="%.3f"),
-                    "Rate per Live Bird": st.column_config.NumberColumn(format="%.3f"),
-                    "<=900gm (%)": st.column_config.NumberColumn(format="%.2f%%"),
-                    ">=1000g (%)": st.column_config.NumberColumn(format="%.2f%%"),
-                    "Yield %": st.column_config.NumberColumn(format="%.2f%%"),
-                    "1st Weight": st.column_config.NumberColumn(format="%.0f"),
-                    "2nd Weight": st.column_config.NumberColumn(format="%.0f"),
-                    "Weight (Total)": st.column_config.NumberColumn(format="%.0f"),
+            for col, (label, value, unit) in zip([col1, col2, col3, col4, col5, col6], cards):
+                with col:
+                    st.markdown(f"""
+                    <div class="summary-card">
+                        <p class="label">{label}</p>
+                        <p class="value">{value} <span class="unit">{unit}</span></p>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+            # --------------------------------------------------------
+            # HOUSE-WISE REPORT
+            # --------------------------------------------------------
+            df_dash["House #"] = df_dash["House #"].astype(str).str.strip()
+            house_values = sorted(
+                [h for h in df_dash["House #"].unique() if h and h not in ("", "0", "nan")],
+                key=lambda x: (int(x) if x.isdigit() else 9999)
+            )
+
+            display_order = [
+                "Sl.No.", "Shipment #", "Birds Age", "Birds Picked", "Count Error",
+                "DOA", "Rejected", "Total (CE+DOA+Rjtd)", "Birds Received (Net)",
+                "Final Weight (Processed)", "Invoice Amt", "Avg Weight / LB",
+                "Rate per Live Bird", "<=900gm (%)", ">=1000g (%)", "Yield %",
+                "1st Weight", "2nd Weight", "Weight (Total)"
+            ]
+
+            if "adjustments" not in st.session_state:
+                st.session_state.adjustments = {}
+
+            st.markdown("---")
+            st.markdown("### 🏠 House-Wise Report")
+
+            # Grand totals tracker
+            grand_birds = total_birds
+            grand_weight = total_weight
+            grand_amount = total_revenue
+            grand_adj_birds = 0.0
+            grand_adj_weight = 0.0
+            grand_adj_amount = 0.0
+
+            for h in house_values:
+                df_h = df_dash[df_dash["House #"] == h].copy()
+                if df_h.empty:
+                    continue
+
+                h_birds = df_h["Birds Received (Net)"].sum()
+                h_weight = df_h["Final Weight (Processed)"].sum()
+                h_amount = df_h["Invoice Amt"].sum()
+
+                # House header
+                st.markdown(f"""
+                <div class="house-header">
+                    <h2>🏠 HOUSE #{h}</h2>
+                    <div class="stats">
+                        <b>{len(df_h)}</b> challans &nbsp;·&nbsp;
+                        <b>{h_birds:,.0f}</b> birds &nbsp;·&nbsp;
+                        <b>{h_weight:,.1f}</b> kg &nbsp;·&nbsp;
+                        <b>OMR {h_amount:,.2f}</b>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # Detail table
+                st.dataframe(
+                    df_h[display_order],
+                    use_container_width=True,
+                    height=min(280, 35 * len(df_h) + 40),
+                    hide_index=True,
+                    column_config={
+                        "Birds Age": st.column_config.NumberColumn(format="%.2f"),
+                        "Birds Picked": st.column_config.NumberColumn(format="%d"),
+                        "Count Error": st.column_config.NumberColumn(format="%d"),
+                        "DOA": st.column_config.NumberColumn(format="%d"),
+                        "Rejected": st.column_config.NumberColumn(format="%d"),
+                        "Total (CE+DOA+Rjtd)": st.column_config.NumberColumn(format="%d"),
+                        "Birds Received (Net)": st.column_config.NumberColumn(format="%d"),
+                        "Final Weight (Processed)": st.column_config.NumberColumn(format="%.1f"),
+                        "Invoice Amt": st.column_config.NumberColumn(format="%.2f"),
+                        "Avg Weight / LB": st.column_config.NumberColumn(format="%.3f"),
+                        "Rate per Live Bird": st.column_config.NumberColumn(format="%.3f"),
+                        "<=900gm (%)": st.column_config.NumberColumn(format="%.2f%%"),
+                        ">=1000g (%)": st.column_config.NumberColumn(format="%.2f%%"),
+                        "Yield %": st.column_config.NumberColumn(format="%.2f%%"),
+                    }
+                )
+
+                # Total row
+                house_totals = {
+                    "birds": df_h["Birds Received (Net)"].sum(),
+                    "weight": df_h["Final Weight (Processed)"].sum(),
+                    "amount": df_h["Invoice Amt"].sum(),
+                    "picked": df_h["Birds Picked"].sum(),
+                    "doa": df_h["DOA"].sum(),
                 }
-            )
 
-            # Column Totals
-            with st.expander("📊 Column Totals"):
-                totals = {
-                    "Birds Picked": df_filtered["Birds Picked"].sum(),
-                    "Count Error": df_filtered["Count Error"].sum(),
-                    "DOA": df_filtered["DOA"].sum(),
-                    "Rejected": df_filtered["Rejected"].sum(),
-                    "Total (CE+DOA+Rjtd)": df_filtered["Total (CE+DOA+Rjtd)"].sum(),
-                    "Birds Received (Net)": df_filtered["Birds Received (Net)"].sum(),
-                    "Final Weight (Processed)": df_filtered["Final Weight (Processed)"].sum(),
-                    "Invoice Amt": df_filtered["Invoice Amt"].sum(),
-                }
-                cols = st.columns(4)
-                for i, (k, v) in enumerate(totals.items()):
-                    with cols[i % 4]:
-                        st.metric(k, f"{v:,.2f}")
-
-            # --------------------------------------------------------
-            # CHARTS
-            # --------------------------------------------------------
-            st.markdown("### 📈 Charts")
-
-            chart_df = df_filtered.copy()
-            chart_df["_dt"] = pd.to_datetime(
-                chart_df["Challan Date"], errors="coerce", dayfirst=True
-            )
-            chart_df = chart_df.dropna(subset=["_dt"]).sort_values("_dt")
-
-            col_ch1, col_ch2 = st.columns(2)
-
-            with col_ch1:
-                if not chart_df.empty:
-                    fig1 = px.line(
-                        chart_df, x="_dt", y="Birds Received (Net)",
-                        title="Birds Received Over Time",
-                        markers=True
-                    )
-                    fig1.update_layout(height=350, margin=dict(l=10, r=10, t=50, b=10))
-                    st.plotly_chart(fig1, use_container_width=True)
-                else:
-                    st.info("No valid date data for chart")
-
-            with col_ch2:
-                if not chart_df.empty:
-                    fig2 = px.bar(
-                        chart_df, x="_dt", y="Yield %",
-                        title="Yield % Trend",
-                        color="Yield %",
-                        color_continuous_scale="Blues"
-                    )
-                    fig2.update_layout(height=350, margin=dict(l=10, r=10, t=50, b=10))
-                    st.plotly_chart(fig2, use_container_width=True)
-                else:
-                    st.info("No valid date data for chart")
-
-            # --------------------------------------------------------
-            # EXPORT
-            # --------------------------------------------------------
-            st.markdown("### 📥 Export")
-
-            csv_data = df_filtered[display_order].to_csv(index=False).encode("utf-8")
-            st.download_button(
-                "📥 Download Master Table (CSV)",
-                data=csv_data,
-                file_name=f"dashboard_master_{_ist_today()}.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
-
-# ------------------------------------------------------------
-# FOOTER
-# ------------------------------------------------------------
-st.divider()
-st.caption("📋 Sheet Tools · Built by S. Mohapatra · Powered by Google Sheets API")
+                st.markdown(f"""
+                <div class="total-row">
+                    <b>🟦 TOTAL FOR HOUSE #{h}:</b> &nbsp;
+                    Birds Picked: <b>{house_totals['picked']:,.0f}</b> &nbsp;·&nbsp;
+                    DOA: <b>{house_totals['doa']:,.0f}</b> &nbsp;·&nbsp;
+                    Birds Received: <b>{house_totals['birds']:,.0f}</b> &nbsp;·&nbsp;
+                    Weight:
