@@ -621,38 +621,102 @@ with tab_dash:
             font-weight: 700;
             letter-spacing: 0.5px;
         }
-        .subtotal-title {
+        .subtotal-banner {
             background: #e8f4fd;
-            color: #0d47a1;
-            padding: 8px 18px;
-            font-size: 13px;
-            font-weight: 700;
             border-left: 5px solid #1976d2;
             border-right: 5px solid #1976d2;
-            letter-spacing: 1px;
+            padding: 10px 14px;
+            margin-top: 0;
         }
-        .final-title {
-            background: linear-gradient(90deg, #ffa000 0%, #ffb300 100%);
-            color: white;
-            padding: 10px 18px;
-            font-size: 15px;
+        .subtotal-banner .banner-label {
+            display: block;
+            font-size: 14px;
             font-weight: 700;
+            color: #0d47a1;
             letter-spacing: 1px;
+            margin-bottom: 8px;
             text-align: center;
         }
-        .grand-total-header {
+        .final-total-banner {
+            background: linear-gradient(135deg, #fff8e1 0%, #ffe082 100%);
+            border-left: 6px solid #ffa000;
+            border-right: 6px solid #ffa000;
+            border-bottom: 6px solid #ffa000;
+            border-radius: 0 0 10px 10px;
+            padding: 12px 14px;
+            box-shadow: 0 3px 10px rgba(255,160,0,0.2);
+            margin-bottom: 20px;
+        }
+        .final-total-banner .banner-label {
+            display: block;
+            font-size: 15px;
+            font-weight: 700;
+            color: #6d4c00;
+            letter-spacing: 1.5px;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        .final-total-banner .adj-note {
+            text-align: center;
+            margin-top: 10px;
+            font-size: 12px;
+            color: #6d4c00;
+            font-style: italic;
+        }
+        /* Grid table for total/subtotal banners */
+        .banner-grid {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 4px;
+            table-layout: fixed;
+        }
+        .banner-grid td {
+            border: 1px solid rgba(25, 118, 210, 0.45);
+            padding: 6px 4px;
+            text-align: center;
+            font-size: 11px;
+            font-weight: 700;
+            color: #0d47a1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .subtotal-banner .banner-grid td {
+            background: rgba(255, 255, 255, 0.7);
+        }
+        .final-total-banner .banner-grid td {
+            border: 1px solid rgba(255, 160, 0, 0.55);
+            background: rgba(255, 255, 255, 0.75);
+            color: #6d4c00;
+        }
+        .grand-total-banner {
             background: linear-gradient(135deg, #0d47a1 0%, #1976d2 100%);
             color: white;
-            padding: 18px 24px;
+            padding: 16px 20px;
             border-radius: 12px;
             text-align: center;
             margin-top: 20px;
             margin-bottom: 12px;
+            box-shadow: 0 6px 22px rgba(13,71,161,0.28);
         }
-        .grand-total-header h2 {
-            margin: 0;
-            font-size: 20px;
-            letter-spacing: 1px;
+        .grand-total-banner .banner-label {
+            display: block;
+            font-size: 17px;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            margin-bottom: 10px;
+        }
+        .banner-grid-grand td {
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            background: rgba(255, 255, 255, 0.12);
+            color: #ffffff;
+            font-size: 13px;
+            padding: 8px 4px;
+            font-weight: 700;
+            text-align: center;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         .stDataFrame td, .stDataFrame th {
             font-size: 11px !important;
@@ -692,7 +756,6 @@ with tab_dash:
                 "Rate per Live Bird", "<=900gm (%)", ">=1000g (%)", "Yield %"
             ]
 
-            # Overall chips
             total_challans = len(df_dash)
             total_birds = df_dash["Birds Received (Net)"].sum()
             total_weight = df_dash["Final Weight (Processed)"].sum()
@@ -728,7 +791,6 @@ with tab_dash:
             if "adjustments" not in st.session_state:
                 st.session_state.adjustments = {}
 
-            # Define columns for adjustment inputs and sums
             num_cols = [
                 "Birds Age", "Birds Picked", "Count Error", "DOA", "Rejected",
                 "Total (CE+DOA+Rjtd)", "Birds Received (Net)",
@@ -766,47 +828,52 @@ with tab_dash:
                     hide_index=True,
                 )
 
-                # Subtotal
+                # Compute subtotal
                 subtotal = {}
                 for c in num_cols:
                     subtotal[c] = df_h[c].sum() if c in df_h.columns else 0.0
 
-                subtotal_df = pd.DataFrame([{
-                    "Shipment #": "SUBTOTAL",
-                    **{c: subtotal[c] for c in num_cols}
-                }])
-
-                st.markdown(
-                    f'<div class="subtotal-title">🟦 SUBTOTAL — HOUSE #{h}</div>',
-                    unsafe_allow_html=True
-                )
-                st.dataframe(
-                    subtotal_df[display_cols],
-                    use_container_width=True,
-                    hide_index=True,
-                    height=45,
-                )
+                # ---- SUBTOTAL BANNER (grid figures) ----
+                st.markdown(f"""
+                <div class="subtotal-banner">
+                    <span class="banner-label">🟦 SUBTOTAL — HOUSE #{h}</span>
+                    <table class="banner-grid">
+                        <tr>
+                            <td>{subtotal['Birds Age']:,.2f}</td>
+                            <td>{subtotal['Birds Picked']:,.0f}</td>
+                            <td>{subtotal['Count Error']:,.0f}</td>
+                            <td>{subtotal['DOA']:,.0f}</td>
+                            <td>{subtotal['Rejected']:,.0f}</td>
+                            <td>{subtotal['Total (CE+DOA+Rjtd)']:,.0f}</td>
+                            <td>{subtotal['Birds Received (Net)']:,.0f}</td>
+                            <td>{subtotal['Final Weight (Processed)']:,.1f}</td>
+                            <td>{subtotal['Invoice Amt']:,.2f}</td>
+                            <td>{subtotal['Avg Weight / LB']:,.3f}</td>
+                            <td>{subtotal['Rate per Live Bird']:,.3f}</td>
+                            <td>{subtotal['<=900gm (%)']:,.2f}%</td>
+                            <td>{subtotal['>=1000g (%)']:,.2f}%</td>
+                            <td>{subtotal['Yield %']:,.2f}%</td>
+                        </tr>
+                    </table>
+                </div>
+                """, unsafe_allow_html=True)
 
                 # Adjustments (all columns)
                 with st.expander(f"⚙️ Adjustments for House #{h} (optional)", expanded=False):
                     st.caption("Fill only the rows you need. All columns available.")
 
-                    # Ensure session state has the key
                     if h not in st.session_state.adjustments:
                         st.session_state.adjustments[h] = []
 
-                    # Ensure correct number of rows
                     while len(st.session_state.adjustments[h]) < 4:
                         st.session_state.adjustments[h].append(_blank_adj_row())
 
-                    # Repair: ensure every row has every key
                     for i in range(len(st.session_state.adjustments[h])):
                         row = st.session_state.adjustments[h][i]
                         for k in ADJ_KEYS:
                             if k not in row:
                                 row[k] = "" if k == "Shipment #" else 0.0
 
-                    # Header row
                     hcols = st.columns([2.2, 0.8, 0.9, 0.8, 0.7, 0.7, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.8])
                     headers = ["Shipment #", "Age", "Picked", "CE", "DOA", "Rej",
                                "Total", "Recvd", "Weight", "Amt", "Avg/LB",
@@ -815,7 +882,6 @@ with tab_dash:
                         with hc:
                             st.markdown(f"**{htext}**")
 
-                    # Input rows
                     for i in range(4):
                         row_cols = st.columns([2.2, 0.8, 0.9, 0.8, 0.7, 0.7, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.8])
                         for col_ui, key in zip(row_cols, ADJ_KEYS):
@@ -848,63 +914,83 @@ with tab_dash:
                             pass
                     adj_sums[c] = total
 
-                final_row = {
-                    "Shipment #": f"FINAL TOTAL — HOUSE #{h}",
-                    **{c: subtotal[c] + adj_sums[c] for c in num_cols}
-                }
-                final_df = pd.DataFrame([final_row])
+                final = {c: subtotal[c] + adj_sums[c] for c in num_cols}
 
-                st.markdown(
-                    f'<div class="final-title">🎯 FINAL TOTAL — HOUSE #{h}</div>',
-                    unsafe_allow_html=True
-                )
-                st.dataframe(
-                    final_df[display_cols],
-                    use_container_width=True,
-                    hide_index=True,
-                    height=45,
-                )
+                # ---- FINAL TOTAL BANNER (grid figures) ----
+                adj_note = ""
+                if any(adj_sums.values()):
+                    adj_note = f'<div class="adj-note">Includes adjustments: +{adj_sums["Birds Received (Net)"]:,.0f} birds · +{adj_sums["Final Weight (Processed)"]:,.1f} kg · +OMR {adj_sums["Invoice Amt"]:,.2f}</div>'
 
-                # Grand totals
-                grand_final_birds += final_row["Birds Received (Net)"]
-                grand_final_weight += final_row["Final Weight (Processed)"]
-                grand_final_amount += final_row["Invoice Amt"]
+                st.markdown(f"""
+                <div class="final-total-banner">
+                    <span class="banner-label">🎯 FINAL TOTAL — HOUSE #{h}</span>
+                    <table class="banner-grid">
+                        <tr>
+                            <td>{final['Birds Age']:,.2f}</td>
+                            <td>{final['Birds Picked']:,.0f}</td>
+                            <td>{final['Count Error']:,.0f}</td>
+                            <td>{final['DOA']:,.0f}</td>
+                            <td>{final['Rejected']:,.0f}</td>
+                            <td>{final['Total (CE+DOA+Rjtd)']:,.0f}</td>
+                            <td>{final['Birds Received (Net)']:,.0f}</td>
+                            <td>{final['Final Weight (Processed)']:,.1f}</td>
+                            <td>{final['Invoice Amt']:,.2f}</td>
+                            <td>{final['Avg Weight / LB']:,.3f}</td>
+                            <td>{final['Rate per Live Bird']:,.3f}</td>
+                            <td>{final['<=900gm (%)']:,.2f}%</td>
+                            <td>{final['>=1000g (%)']:,.2f}%</td>
+                            <td>{final['Yield %']:,.2f}%</td>
+                        </tr>
+                    </table>
+                    {adj_note}
+                </div>
+                """, unsafe_allow_html=True)
+
+                grand_final_birds += final["Birds Received (Net)"]
+                grand_final_weight += final["Final Weight (Processed)"]
+                grand_final_amount += final["Invoice Amt"]
 
                 st.markdown("<br>", unsafe_allow_html=True)
 
-            # ---- GRAND TOTAL ----
-            st.markdown("""
-            <div class="grand-total-header">
-                <h2>🌐 GRAND TOTAL — ALL HOUSES</h2>
+            # ---- GRAND TOTAL BANNER ----
+            g_age = df_dash["Birds Age"].sum() if "Birds Age" in df_dash.columns else 0.0
+            g_picked = df_dash["Birds Picked"].sum()
+            g_ce = df_dash["Count Error"].sum()
+            g_doa = df_dash["DOA"].sum()
+            g_rej = df_dash["Rejected"].sum()
+            g_total = df_dash["Total (CE+DOA+Rjtd)"].sum()
+            g_amt = df_dash["Invoice Amt"].sum()
+            g_avg = df_dash["Avg Weight / LB"].mean() if "Avg Weight / LB" in df_dash.columns else 0.0
+            g_rate = df_dash["Rate per Live Bird"].mean() if "Rate per Live Bird" in df_dash.columns else 0.0
+            g_le900 = df_dash["<=900gm (%)"].mean() if "<=900gm (%)" in df_dash.columns else 0.0
+            g_ge1000 = df_dash[">=1000g (%)"].mean() if ">=1000g (%)" in df_dash.columns else 0.0
+            g_yield = df_dash["Yield %"].mean() if "Yield %" in df_dash.columns else 0.0
+
+            st.markdown(f"""
+            <div class="grand-total-banner">
+                <span class="banner-label">🌐 GRAND TOTAL — ALL HOUSES</span>
+                <table class="banner-grid banner-grid-grand">
+                    <tr>
+                        <td>{g_age:,.2f}</td>
+                        <td>{g_picked:,.0f}</td>
+                        <td>{g_ce:,.0f}</td>
+                        <td>{g_doa:,.0f}</td>
+                        <td>{g_rej:,.0f}</td>
+                        <td>{g_total:,.0f}</td>
+                        <td>{grand_final_birds:,.0f}</td>
+                        <td>{grand_final_weight:,.1f}</td>
+                        <td>{grand_final_amount:,.2f}</td>
+                        <td>{g_avg:,.3f}</td>
+                        <td>{g_rate:,.3f}</td>
+                        <td>{g_le900:,.2f}%</td>
+                        <td>{g_ge1000:,.2f}%</td>
+                        <td>{g_yield:,.2f}%</td>
+                    </tr>
+                </table>
             </div>
             """, unsafe_allow_html=True)
 
-            grand_df = pd.DataFrame([{
-                "Shipment #": "GRAND TOTAL",
-                "Birds Age": "",
-                "Birds Picked": df_dash["Birds Picked"].sum(),
-                "Count Error": df_dash["Count Error"].sum(),
-                "DOA": df_dash["DOA"].sum(),
-                "Rejected": df_dash["Rejected"].sum(),
-                "Total (CE+DOA+Rjtd)": df_dash["Total (CE+DOA+Rjtd)"].sum(),
-                "Birds Received (Net)": grand_final_birds,
-                "Final Weight (Processed)": grand_final_weight,
-                "Invoice Amt": grand_final_amount,
-                "Avg Weight / LB": "",
-                "Rate per Live Bird": "",
-                "<=900gm (%)": "",
-                ">=1000g (%)": "",
-                "Yield %": "",
-            }])
-
-            st.dataframe(
-                grand_df[display_cols],
-                use_container_width=True,
-                hide_index=True,
-                height=45,
-            )
-
-            # ---- Master table ----
+            # ---- Master Table ----
             st.markdown("---")
             with st.expander("📋 Full Master Table (all challans)", expanded=False):
                 master_cols = ["Sl.No.", "House #"] + display_cols
