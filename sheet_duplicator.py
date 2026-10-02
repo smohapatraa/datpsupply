@@ -272,7 +272,6 @@ def fetch_dashboard_data(sheet_names):
             if not data or len(data) < 30:
                 continue
 
-            # ---- Read cells ----
             challan_no = _read_cell(data, "C6")
             challan_date = _read_cell(data, "C8")
             house_no = _read_cell(data, "C11")
@@ -296,7 +295,6 @@ def fetch_dashboard_data(sheet_names):
             second_wt = _parse_number(_read_cell(data, "E17"))
             total_weight = first_wt - second_wt
 
-            # ---- Computed ----
             total_ce_doa_rjtd = count_error + doa + rejected
 
             avg_weight = 0.0
@@ -344,6 +342,16 @@ def fetch_dashboard_data(sheet_names):
             continue
 
     return pd.DataFrame(rows)
+
+def get_unique_columns(df, cols):
+    """Return deduplicated list of columns that exist in df."""
+    result = []
+    seen = set()
+    for c in cols:
+        if c in df.columns and c not in seen:
+            result.append(c)
+            seen.add(c)
+    return result
 
 # ============================================================
 # UI
@@ -604,7 +612,7 @@ with tab_excel:
 # TAB 3: DASHBOARD
 # ============================================================
 with tab_dash:
-    # ---- Custom CSS for a polished report ----
+    # ---- Custom CSS ----
     st.markdown("""
     <style>
         .report-title {
@@ -657,9 +665,6 @@ with tab_dash:
             padding: 14px 22px;
             border-radius: 10px;
             margin: 24px 0 14px 0;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
         }
         .house-header h2 {
             margin: 0;
@@ -669,7 +674,7 @@ with tab_dash:
         .house-header .stats {
             font-size: 13px;
             color: #555;
-            text-align: right;
+            margin-top: 6px;
         }
         .house-header .stats b {
             color: #0d47a1;
@@ -728,6 +733,7 @@ with tab_dash:
         .grand-total .stat {
             display: inline-block;
             margin-right: 40px;
+            vertical-align: top;
         }
         .grand-total .stat .lbl {
             font-size: 12px;
@@ -743,7 +749,6 @@ with tab_dash:
     </style>
     """, unsafe_allow_html=True)
 
-    # ---- Report Header ----
     st.markdown(f"""
     <div class="report-title">
         <h1>📊 SLAUGHTER REPORT DASHBOARD</h1>
@@ -768,9 +773,7 @@ with tab_dash:
         else:
             df_dash.insert(0, "Sl.No.", range(1, len(df_dash) + 1))
 
-            # --------------------------------------------------------
-            # OVERALL SUMMARY
-            # --------------------------------------------------------
+            # ---- Overall Summary ----
             st.markdown("### 📈 Overall Summary")
 
             total_challans = len(df_dash)
@@ -800,9 +803,7 @@ with tab_dash:
                     </div>
                     """, unsafe_allow_html=True)
 
-            # --------------------------------------------------------
-            # HOUSE-WISE REPORT
-            # --------------------------------------------------------
+            # ---- House-wise report ----
             df_dash["House #"] = df_dash["House #"].astype(str).str.strip()
             house_values = sorted(
                 [h for h in df_dash["House #"].unique() if h and h not in ("", "0", "nan")],
@@ -823,7 +824,7 @@ with tab_dash:
             st.markdown("---")
             st.markdown("### 🏠 House-Wise Report")
 
-            # Grand totals tracker
+            # Grand total trackers
             grand_birds = total_birds
             grand_weight = total_weight
             grand_amount = total_revenue
@@ -853,9 +854,10 @@ with tab_dash:
                 </div>
                 """, unsafe_allow_html=True)
 
-                # Detail table
+                # Detail table — deduplicated columns
+                safe_cols = get_unique_columns(df_h, display_order)
                 st.dataframe(
-                    df_h[display_order],
+                    df_h[safe_cols],
                     use_container_width=True,
                     height=min(280, 35 * len(df_h) + 40),
                     hide_index=True,
@@ -897,9 +899,9 @@ with tab_dash:
                 </div>
                 """, unsafe_allow_html=True)
 
-                # Adjustments (optional, blank)
+                # Adjustments (optional)
                 with st.expander(f"⚙️ Optional Adjustments for House #{h}", expanded=False):
-                    st.caption("Leave blank if no adjustment. Fill any row to add a correction.")
+                    st.caption("Leave blank if no adjustment.")
 
                     if h not in st.session_state.adjustments:
                         st.session_state.adjustments[h] = [
@@ -907,7 +909,6 @@ with tab_dash:
                             for _ in range(4)
                         ]
 
-                    # Column headers
                     hc1, hc2, hc3, hc4 = st.columns([3, 1, 1, 1])
                     with hc1:
                         st.markdown("**Particulars**")
@@ -953,7 +954,7 @@ with tab_dash:
                                 label_visibility="collapsed"
                             )
 
-                # Adjustment totals
+                # Compute adjustments
                 adj_birds = sum(a["Birds"] for a in st.session_state.adjustments[h])
                 adj_weight = sum(a["Weight"] for a in st.session_state.adjustments[h])
                 adj_amount = sum(a["Amount"] for a in st.session_state.adjustments[h])
@@ -976,7 +977,7 @@ with tab_dash:
                 </div>
                 """, unsafe_allow_html=True)
 
-                # Update grand totals
+                # Update grand total
                 grand_birds = grand_birds - house_totals["birds"] + final_birds
                 grand_weight = grand_weight - house_totals["weight"] + final_weight
                 grand_amount = grand_amount - house_totals["amount"] + final_amount
@@ -984,9 +985,7 @@ with tab_dash:
                 grand_adj_weight += adj_weight
                 grand_adj_amount += adj_amount
 
-            # --------------------------------------------------------
-            # GRAND TOTAL
-            # --------------------------------------------------------
+            # ---- Grand Total ----
             adj_block = ""
             if grand_adj_birds or grand_adj_weight or grand_adj_amount:
                 adj_block = f'<div class="stat"><div class="lbl">Adjustments</div><div class="val">+{grand_adj_birds:,.0f} b · +{grand_adj_weight:,.1f} kg · +OMR {grand_adj_amount:,.2f}</div></div>'
@@ -1010,13 +1009,15 @@ with tab_dash:
             </div>
             """, unsafe_allow_html=True)
 
-            # --------------------------------------------------------
-            # MASTER TABLE
-            # --------------------------------------------------------
+            # ---- Master Table ----
             st.markdown("---")
             st.markdown("### 📋 Full Master Table")
 
-            master_display = ["Sl.No.", "Shipment #", "House #"] + display_order[1:]
+            # SAFE deduplication to prevent the ValueError
+            master_display = get_unique_columns(
+                df_dash,
+                ["Sl.No.", "Shipment #", "House #"] + display_order
+            )
 
             st.dataframe(
                 df_dash[master_display],
@@ -1041,9 +1042,7 @@ with tab_dash:
                 }
             )
 
-            # --------------------------------------------------------
-            # EXPORT
-            # --------------------------------------------------------
+            # ---- Export ----
             st.markdown("### 📥 Export")
             csv_data = df_dash[master_display].to_csv(index=False).encode("utf-8")
             st.download_button(
