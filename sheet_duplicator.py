@@ -10,7 +10,7 @@ import io
 # PAGE CONFIG
 # ------------------------------------------------------------
 st.set_page_config(
-    page_title="Sheet Duplicator",
+    page_title="Sheet Tools",
     page_icon="📋",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -35,7 +35,7 @@ if "authenticated" not in st.session_state:
 if not st.session_state.authenticated:
     st.markdown("""
     <div style="text-align:center; padding: 40px 0;">
-        <h1 style="color:#1a73e8; font-size: 48px;">📋 Sheet Duplicator</h1>
+        <h1 style="color:#1a73e8; font-size: 48px;">📋 Sheet Tools</h1>
         <p style="color:#888; font-size: 16px;">Please log in to continue</p>
     </div>
     """, unsafe_allow_html=True)
@@ -267,57 +267,54 @@ def fetch_dashboard_data(sheet_names):
 
     for name in sheet_names:
         try:
-            # Skip summary/template sheets
             low = name.lower()
             if "template" in low or "summary" in low or "target" in low:
                 continue
 
             ws = ss.worksheet(name)
-
-            # Read A1:R60 in one API call
             data = ws.get("A1:R60")
             if not data or len(data) < 30:
                 continue
 
-            # Read each field using the confirmed cell addresses
-            challan_no = _read_cell(data, "D8")
+            # ---- Read individual cells ----
+            challan_no = _read_cell(data, "C6")
             challan_date = _read_cell(data, "C9")
-            vehicle_no = _read_cell(data, "C17")
+            vehicle_no = _read_cell(data, "C15")
             invoice_date = _read_cell(data, "H59")
 
-            birds_age = _parse_number(_read_cell(data, "C14"))
-            birds_picked = _parse_number(_read_cell(data, "D14"))
+            birds_age = _parse_number(_read_cell(data, "D12"))
+            birds_picked = _parse_number(_read_cell(data, "E12"))
             count_error = _parse_number(_read_cell(data, "D17"))
-            doa = _parse_number(_read_cell(data, "D24"))
-            rejected = _parse_number(_read_cell(data, "D25"))
-            birds_received = _parse_number(_read_cell(data, "D26"))
-            final_weight = _parse_number(_read_cell(data, "E29"))
-            invoice_amt = _parse_number(_read_cell(data, "D32"))
-            avg_weight = _parse_number(_read_cell(data, "D23"))
-            rate_per_lb = _parse_number(_read_cell(data, "D33"))
-            first_wt = _parse_number(_read_cell(data, "D19"))
-            second_wt = _parse_number(_read_cell(data, "D20"))
-            total_weight = _parse_number(_read_cell(data, "E22"))
+            doa = _parse_number(_read_cell(data, "D20"))
+            rejected = _parse_number(_read_cell(data, "D21"))
+            birds_received = _parse_number(_read_cell(data, "D18"))
+            final_weight = _parse_number(_read_cell(data, "E25"))
+            invoice_amt = _parse_number(_read_cell(data, "D28"))
+            rate_per_lb = _parse_number(_read_cell(data, "D29"))
 
-            # Yield %
-            yield_str = _read_cell(data, "F27")
-            try:
-                yield_pct = float(yield_str.replace("%", "").strip())
-            except Exception:
-                yield_pct = 0.0
+            first_wt = _parse_number(_read_cell(data, "E16"))
+            second_wt = _parse_number(_read_cell(data, "E17"))
+            total_weight = first_wt - second_wt
 
-            # Total (CE + DOA + Rejected)
+            # ---- Computed fields ----
             total_ce_doa_rjtd = abs(count_error) + doa + rejected
 
-            # <=900gm% : sum of B38:B43 / B52
-            le_900 = sum(_parse_number(_read_cell(data, f"B{r}")) for r in range(38, 44))
-            ge_1000 = sum(_parse_number(_read_cell(data, f"B{r}")) for r in range(44, 52))
-            total_grade = _parse_number(_read_cell(data, "B52"))
-            if total_grade == 0:
-                total_grade = 1  # avoid division by zero
+            # Avg Weight / LB = (E16 - E17) / (D12 - D17)
+            avg_weight = 0.0
+            denominator = birds_age - abs(count_error)
+            if denominator != 0:
+                avg_weight = (first_wt - second_wt) / denominator
 
-            le_900_pct = round((le_900 / total_grade) * 100, 2)
-            ge_1000_pct = round((ge_1000 / total_grade) * 100, 2)
+            # <=900gm (%) = SUM(E33:E38)
+            le_900 = sum(_parse_number(_read_cell(data, f"E{r}")) for r in range(33, 39))
+
+            # >=1000g (%) = 100% - SUM(E33:E38)
+            ge_1000 = 1.0 - le_900 if le_900 <= 1 else 100 - le_900
+
+            # Yield % = E25 / (E16 - E17)
+            yield_pct = 0.0
+            if total_weight != 0:
+                yield_pct = final_weight / total_weight
 
             # Skip empty sheets
             if not challan_no and birds_received == 0:
@@ -338,11 +335,11 @@ def fetch_dashboard_data(sheet_names):
                 "Birds Received (Net)": birds_received,
                 "Final Weight (Processed)": final_weight,
                 "Invoice Amt": invoice_amt,
-                "Avg Weight / LB": avg_weight,
+                "Avg Weight / LB": round(avg_weight, 4),
                 "Rate per Live Bird": rate_per_lb,
-                "<=900gm (%)": le_900_pct,
-                ">=1000g (%)": ge_1000_pct,
-                "Yield %": yield_pct,
+                "<=900gm (%)": round(le_900 * 100, 2) if le_900 <= 1 else round(le_900, 2),
+                ">=1000g (%)": round(ge_1000 * 100, 2) if ge_1000 <= 1 else round(ge_1000, 2),
+                "Yield %": round(yield_pct * 100, 2) if yield_pct <= 1 else round(yield_pct, 2),
                 "1st Weight": first_wt,
                 "2nd Weight": second_wt,
                 "Weight (Total)": total_weight,
