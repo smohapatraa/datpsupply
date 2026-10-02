@@ -592,7 +592,6 @@ with tab_excel:
 # TAB 3: DASHBOARD
 # ============================================================
 with tab_dash:
-    # ---- Compact CSS for full-width tables (screen-fit) ----
     st.markdown("""
     <style>
         .report-header {
@@ -640,7 +639,6 @@ with tab_dash:
             font-weight: 700;
             letter-spacing: 1px;
             text-align: center;
-            border-radius: 0;
         }
         .grand-total-header {
             background: linear-gradient(135deg, #0d47a1 0%, #1976d2 100%);
@@ -656,7 +654,6 @@ with tab_dash:
             font-size: 20px;
             letter-spacing: 1px;
         }
-        /* Compact dataframe cells for screen fit */
         .stDataFrame td, .stDataFrame th {
             font-size: 11px !important;
             padding: 4px 6px !important;
@@ -688,7 +685,6 @@ with tab_dash:
         else:
             df_dash.insert(0, "Sl.No.", range(1, len(df_dash) + 1))
 
-            # ---- Display columns (compact, fit width) ----
             display_cols = [
                 "Shipment #", "Birds Age", "Birds Picked", "Count Error", "DOA",
                 "Rejected", "Total (CE+DOA+Rjtd)", "Birds Received (Net)",
@@ -696,7 +692,7 @@ with tab_dash:
                 "Rate per Live Bird", "<=900gm (%)", ">=1000g (%)", "Yield %"
             ]
 
-            # ---- Overall banner ----
+            # Overall chips
             total_challans = len(df_dash)
             total_birds = df_dash["Birds Received (Net)"].sum()
             total_weight = df_dash["Final Weight (Processed)"].sum()
@@ -723,7 +719,6 @@ with tab_dash:
             </div>
             """, unsafe_allow_html=True)
 
-            # ---- House-wise ----
             df_dash["House #"] = df_dash["House #"].astype(str).str.strip()
             house_values = sorted(
                 [h for h in df_dash["House #"].unique() if h and h not in ("", "0", "nan")],
@@ -733,18 +728,24 @@ with tab_dash:
             if "adjustments" not in st.session_state:
                 st.session_state.adjustments = {}
 
-            # Track grand totals
-            grand_final_birds = 0.0
-            grand_final_weight = 0.0
-            grand_final_amount = 0.0
-
-            # Numerical columns for subtotal/final total rows
+            # Define columns for adjustment inputs and sums
             num_cols = [
                 "Birds Age", "Birds Picked", "Count Error", "DOA", "Rejected",
                 "Total (CE+DOA+Rjtd)", "Birds Received (Net)",
                 "Final Weight (Processed)", "Invoice Amt", "Avg Weight / LB",
                 "Rate per Live Bird", "<=900gm (%)", ">=1000g (%)", "Yield %"
             ]
+            ADJ_KEYS = ["Shipment #"] + num_cols
+
+            def _blank_adj_row():
+                row = {}
+                for k in ADJ_KEYS:
+                    row[k] = "" if k == "Shipment #" else 0.0
+                return row
+
+            grand_final_birds = 0.0
+            grand_final_weight = 0.0
+            grand_final_amount = 0.0
 
             for h in house_values:
                 df_h = df_dash[df_dash["House #"] == h].copy()
@@ -757,7 +758,7 @@ with tab_dash:
                     unsafe_allow_html=True
                 )
 
-                # ---- DETAIL TABLE ----
+                # Detail table
                 st.dataframe(
                     df_h[display_cols],
                     use_container_width=True,
@@ -765,13 +766,10 @@ with tab_dash:
                     hide_index=True,
                 )
 
-                # ---- SUBTOTAL ROW ----
+                # Subtotal
                 subtotal = {}
                 for c in num_cols:
-                    if c in df_h.columns:
-                        subtotal[c] = df_h[c].sum()
-                    else:
-                        subtotal[c] = 0.0
+                    subtotal[c] = df_h[c].sum() if c in df_h.columns else 0.0
 
                 subtotal_df = pd.DataFrame([{
                     "Shipment #": "SUBTOTAL",
@@ -779,7 +777,7 @@ with tab_dash:
                 }])
 
                 st.markdown(
-                    '<div class="subtotal-title">🟦 SUBTOTAL — HOUSE #' + h + '</div>',
+                    f'<div class="subtotal-title">🟦 SUBTOTAL — HOUSE #{h}</div>',
                     unsafe_allow_html=True
                 )
                 st.dataframe(
@@ -789,62 +787,43 @@ with tab_dash:
                     height=45,
                 )
 
-                # ---- ADJUSTMENTS (ALL COLUMNS) ----
+                # Adjustments (all columns)
                 with st.expander(f"⚙️ Adjustments for House #{h} (optional)", expanded=False):
                     st.caption("Fill only the rows you need. All columns available.")
 
+                    # Ensure session state has the key
                     if h not in st.session_state.adjustments:
                         st.session_state.adjustments[h] = []
 
-                    # Number of adjustment rows
-                    num_adjust_rows = 4
+                    # Ensure correct number of rows
+                    while len(st.session_state.adjustments[h]) < 4:
+                        st.session_state.adjustments[h].append(_blank_adj_row())
 
-                    # Ensure the session state has enough rows
-                    while len(st.session_state.adjustments[h]) < num_adjust_rows:
-                        st.session_state.adjustments[h].append({
-                            "Shipment #": "",
-                            "Birds Age": 0.0,
-                            "Birds Picked": 0.0,
-                            "Count Error": 0.0,
-                            "DOA": 0.0,
-                            "Rejected": 0.0,
-                            "Total (CE+DOA+Rjtd)": 0.0,
-                            "Birds Received (Net)": 0.0,
-                            "Final Weight (Processed)": 0.0,
-                            "Invoice Amt": 0.0,
-                            "Avg Weight / LB": 0.0,
-                            "Rate per Live Bird": 0.0,
-                            "<=900gm (%)": 0.0,
-                            ">=1000g (%)": 0.0,
-                            "Yield %": 0.0,
-                        })
+                    # Repair: ensure every row has every key
+                    for i in range(len(st.session_state.adjustments[h])):
+                        row = st.session_state.adjustments[h][i]
+                        for k in ADJ_KEYS:
+                            if k not in row:
+                                row[k] = "" if k == "Shipment #" else 0.0
 
-                    # Header
+                    # Header row
                     hcols = st.columns([2.2, 0.8, 0.9, 0.8, 0.7, 0.7, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.8])
-                    headers = [
-                        "Shipment #", "Age", "Picked", "CE", "DOA", "Rej",
-                        "Total", "Recvd", "Weight", "Amt", "Avg/LB",
-                        "Rate/LB", "<=900", ">=1000", "Yield"
-                    ]
+                    headers = ["Shipment #", "Age", "Picked", "CE", "DOA", "Rej",
+                               "Total", "Recvd", "Weight", "Amt", "Avg/LB",
+                               "Rate/LB", "<=900", ">=1000", "Yield"]
                     for hc, htext in zip(hcols, headers):
                         with hc:
                             st.markdown(f"**{htext}**")
 
                     # Input rows
-                    for i in range(num_adjust_rows):
+                    for i in range(4):
                         row_cols = st.columns([2.2, 0.8, 0.9, 0.8, 0.7, 0.7, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.8])
-                        keys = [
-                            "Shipment #", "Birds Age", "Birds Picked", "Count Error",
-                            "DOA", "Rejected", "Total (CE+DOA+Rjtd)", "Birds Received (Net)",
-                            "Final Weight (Processed)", "Invoice Amt", "Avg Weight / LB",
-                            "Rate per Live Bird", "<=900gm (%)", ">=1000g (%)", "Yield %"
-                        ]
-                        for col_ui, key in zip(row_cols, keys):
+                        for col_ui, key in zip(row_cols, ADJ_KEYS):
                             with col_ui:
                                 if key == "Shipment #":
                                     st.session_state.adjustments[h][i][key] = st.text_input(
                                         f"adj_{h}_{i}_{key}",
-                                        value=st.session_state.adjustments[h][i][key],
+                                        value=st.session_state.adjustments[h][i].get(key, ""),
                                         key=f"adj_{h}_{i}_{key}",
                                         label_visibility="collapsed",
                                         placeholder="—"
@@ -852,27 +831,26 @@ with tab_dash:
                                 else:
                                     st.session_state.adjustments[h][i][key] = st.number_input(
                                         f"adj_{h}_{i}_{key}",
-                                        value=float(st.session_state.adjustments[h][i][key]),
+                                        value=float(st.session_state.adjustments[h][i].get(key, 0.0)),
                                         step=0.01,
                                         key=f"adj_{h}_{i}_{key}",
                                         label_visibility="collapsed"
                                     )
 
-                # ---- FINAL TOTAL = SUBTOTAL + ADJUSTMENTS ----
-                adj_row_sums = {}
+                # Compute adjustments
+                adj_sums = {}
                 for c in num_cols:
                     total = 0.0
                     for adj_row in st.session_state.adjustments[h]:
-                        if c in adj_row:
-                            try:
-                                total += float(adj_row[c])
-                            except Exception:
-                                pass
-                    adj_row_sums[c] = total
+                        try:
+                            total += float(adj_row.get(c, 0.0))
+                        except Exception:
+                            pass
+                    adj_sums[c] = total
 
                 final_row = {
                     "Shipment #": f"FINAL TOTAL — HOUSE #{h}",
-                    **{c: subtotal[c] + adj_row_sums[c] for c in num_cols}
+                    **{c: subtotal[c] + adj_sums[c] for c in num_cols}
                 }
                 final_df = pd.DataFrame([final_row])
 
@@ -887,7 +865,7 @@ with tab_dash:
                     height=45,
                 )
 
-                # Track grand totals
+                # Grand totals
                 grand_final_birds += final_row["Birds Received (Net)"]
                 grand_final_weight += final_row["Final Weight (Processed)"]
                 grand_final_amount += final_row["Invoice Amt"]
@@ -926,7 +904,7 @@ with tab_dash:
                 height=45,
             )
 
-            # ---- Master table (collapsed) ----
+            # ---- Master table ----
             st.markdown("---")
             with st.expander("📋 Full Master Table (all challans)", expanded=False):
                 master_cols = ["Sl.No.", "House #"] + display_cols
