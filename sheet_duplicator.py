@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px
 from datetime import datetime, timedelta, timezone
 import gspread
 from google.oauth2.service_account import Credentials
@@ -98,13 +99,12 @@ CELL_MAP = {
     "birds2nd": "J64",
 }
 
-# Excel import constants
 EXCEL_SOURCE_RANGE = "C2:F38"
 GS_DEST_RANGE = "A57:D93"
 
-# ------------------------------------------------------------
+# ============================================================
 # READ HELPERS
-# ------------------------------------------------------------
+# ============================================================
 @st.cache_data(ttl=15, show_spinner=False)
 def list_sheet_names():
     try:
@@ -136,7 +136,6 @@ def get_last_sheet_prefill():
 
 @st.cache_data(ttl=15, show_spinner=False)
 def read_gs_range(sheet_name, cell_range):
-    """Read a range from a Google Sheet."""
     try:
         ws = get_spreadsheet().worksheet(sheet_name)
         data = ws.get(cell_range)
@@ -151,11 +150,10 @@ def read_gs_range(sheet_name, cell_range):
         st.warning(f"Could not read {cell_range} from {sheet_name}: {e}")
         return pd.DataFrame()
 
-# ------------------------------------------------------------
+# ============================================================
 # EXCEL HELPERS
-# ------------------------------------------------------------
+# ============================================================
 def get_excel_sheet_names(file_bytes):
-    """Return list of sheet names in an uploaded Excel file."""
     try:
         xls = pd.ExcelFile(io.BytesIO(file_bytes))
         return xls.sheet_names
@@ -164,17 +162,15 @@ def get_excel_sheet_names(file_bytes):
         return []
 
 def read_excel_range(file_bytes, sheet_name, cell_range="C2:F38"):
-    """Read a specific range from a sheet in an Excel file."""
     try:
         df = pd.read_excel(
             io.BytesIO(file_bytes),
             sheet_name=sheet_name,
             header=None,
             usecols="C:F",
-            skiprows=1,       # Skip to row 2 (0-indexed=1)
-            nrows=37          # 37 rows (2-38 inclusive)
+            skiprows=1,
+            nrows=37
         )
-        # Ensure exactly 4 columns
         while len(df.columns) < 4:
             df[len(df.columns)] = ""
         df = df.iloc[:, :4]
@@ -184,9 +180,9 @@ def read_excel_range(file_bytes, sheet_name, cell_range="C2:F38"):
         st.error(f"Could not read range {cell_range} from '{sheet_name}': {e}")
         return pd.DataFrame()
 
-# ------------------------------------------------------------
+# ============================================================
 # WRITE HELPERS
-# ------------------------------------------------------------
+# ============================================================
 def duplicate_and_fill(new_name, data):
     ss = get_spreadsheet()
     sheets = ss.worksheets()
@@ -214,23 +210,148 @@ def duplicate_and_fill(new_name, data):
     return new_sheet
 
 def write_gs_range(sheet_name, cell_range, df):
-    """Write a DataFrame (37 rows × 4 cols) into a Google Sheet range."""
     ws = get_spreadsheet().worksheet(sheet_name)
-
-    # Convert DataFrame to list-of-lists
     values = df.fillna("").astype(str).values.tolist()
-
-    # Ensure 37 rows × 4 cols
     while len(values) < 37:
         values.append(["", "", "", ""])
     values = [row[:4] + [""] * (4 - len(row)) for row in values[:37]]
-
     ws.update(cell_range, values, value_input_option="USER_ENTERED")
 
 def delete_sheet(sheet_name):
     ss = get_spreadsheet()
     ws = ss.worksheet(sheet_name)
     ss.del_worksheet(ws)
+
+# ============================================================
+# DASHBOARD HELPERS
+# ============================================================
+def _cell_to_indices(cell):
+    """Convert A1 notation to (row_index, col_index) — 0-based."""
+    col_letters = "".join(c for c in cell if c.isalpha())
+    row_num = int("".join(c for c in cell if c.isdigit()))
+    col_idx = 0
+    for ch in col_letters:
+        col_idx = col_idx * 26 + (ord(ch.upper()) - ord('A') + 1)
+    return row_num - 1, col_idx - 1
+
+def _read_cell(data, cell):
+    """Read a cell from a 2D array using A1 notation."""
+    try:
+        r, c = _cell_to_indices(cell)
+        if r < len(data) and c < len(data[r]):
+            return str(data[r][c]).strip()
+        return ""
+    except Exception:
+        return ""
+
+def _parse_number(value):
+    """Parse a numeric value; handle (45) as -45, X as 0."""
+    if not value or value in ("-", "X", "x", "", "N/A"):
+        return 0.0
+    cleaned = str(value).replace(",", "").replace("%", "").strip()
+    neg = False
+    if cleaned.startswith("(") and cleaned.endswith(")"):
+        neg = True
+        cleaned = cleaned[1:-1]
+    try:
+        n = float(cleaned)
+        return -n if neg else n
+    except Exception:
+        return 0.0
+
+@st.cache_data(ttl=120, show_spinner=False)
+def fetch_dashboard_data(sheet_names):
+    """Loop through all sheets and build the master DataFrame."""
+    ss = get_spreadsheet()
+    rows = []
+
+    for name in sheet_names:
+        try:
+            # Skip summary/template sheets
+            low = name.lower()
+            if "template" in low or "summary" in low or "target" in low:
+                continue
+
+            ws = ss.worksheet(name)
+
+            # Read A1:R60 in one API call
+            data = ws.get("A1:R60")
+            if not data or len(data) < 30:
+                continue
+
+            # Read each field using the confirmed cell addresses
+            challan_no = _read_cell(data, "D8")
+            challan_date = _read_cell(data, "C9")
+            vehicle_no = _read_cell(data, "C17")
+            invoice_date = _read_cell(data, "H59")
+
+            birds_age = _parse_number(_read_cell(data, "C14"))
+            birds_picked = _parse_number(_read_cell(data, "D14"))
+            count_error = _parse_number(_read_cell(data, "D17"))
+            doa = _parse_number(_read_cell(data, "D24"))
+            rejected = _parse_number(_read_cell(data, "D25"))
+            birds_received = _parse_number(_read_cell(data, "D26"))
+            final_weight = _parse_number(_read_cell(data, "E29"))
+            invoice_amt = _parse_number(_read_cell(data, "D32"))
+            avg_weight = _parse_number(_read_cell(data, "D23"))
+            rate_per_lb = _parse_number(_read_cell(data, "D33"))
+            first_wt = _parse_number(_read_cell(data, "D19"))
+            second_wt = _parse_number(_read_cell(data, "D20"))
+            total_weight = _parse_number(_read_cell(data, "E22"))
+
+            # Yield %
+            yield_str = _read_cell(data, "F27")
+            try:
+                yield_pct = float(yield_str.replace("%", "").strip())
+            except Exception:
+                yield_pct = 0.0
+
+            # Total (CE + DOA + Rejected)
+            total_ce_doa_rjtd = abs(count_error) + doa + rejected
+
+            # <=900gm% : sum of B38:B43 / B52
+            le_900 = sum(_parse_number(_read_cell(data, f"B{r}")) for r in range(38, 44))
+            ge_1000 = sum(_parse_number(_read_cell(data, f"B{r}")) for r in range(44, 52))
+            total_grade = _parse_number(_read_cell(data, "B52"))
+            if total_grade == 0:
+                total_grade = 1  # avoid division by zero
+
+            le_900_pct = round((le_900 / total_grade) * 100, 2)
+            ge_1000_pct = round((ge_1000 / total_grade) * 100, 2)
+
+            # Skip empty sheets
+            if not challan_no and birds_received == 0:
+                continue
+
+            rows.append({
+                "Shipment #": name,
+                "Challan No": challan_no,
+                "Challan Date": challan_date,
+                "Invoice Date": invoice_date,
+                "Vehicle No": vehicle_no,
+                "Birds Age": birds_age,
+                "Birds Picked": birds_picked,
+                "Count Error": count_error,
+                "DOA": doa,
+                "Rejected": rejected,
+                "Total (CE+DOA+Rjtd)": total_ce_doa_rjtd,
+                "Birds Received (Net)": birds_received,
+                "Final Weight (Processed)": final_weight,
+                "Invoice Amt": invoice_amt,
+                "Avg Weight / LB": avg_weight,
+                "Rate per Live Bird": rate_per_lb,
+                "<=900gm (%)": le_900_pct,
+                ">=1000g (%)": ge_1000_pct,
+                "Yield %": yield_pct,
+                "1st Weight": first_wt,
+                "2nd Weight": second_wt,
+                "Weight (Total)": total_weight,
+            })
+        except Exception as e:
+            st.warning(f"Could not read '{name}': {e}")
+            continue
+
+    return pd.DataFrame(rows)
 
 # ============================================================
 # UI
@@ -263,7 +384,11 @@ with st.sidebar:
 # ============================================================
 # TABS
 # ============================================================
-tab_dup, tab_excel = st.tabs(["📋 Duplicate Sheet", "📥 Import from Excel"])
+tab_dup, tab_excel, tab_dash = st.tabs([
+    "📋 Duplicate Sheet",
+    "📥 Import from Excel",
+    "📊 Dashboard"
+])
 
 # ============================================================
 # TAB 1: DUPLICATE SHEET
@@ -401,7 +526,6 @@ with tab_excel:
     st.subheader("📥 Import Range from Excel → Google Sheet")
     st.caption("Upload an Excel file, pick a sheet, and copy **C2:F38** into the selected Google Sheet's **A57:D93**.")
 
-    # ---- Step 1: Upload Excel ----
     st.markdown("#### Step 1 — Upload Excel File")
     uploaded_file = st.file_uploader(
         "Choose an Excel file (.xlsx / .xls)",
@@ -412,7 +536,6 @@ with tab_excel:
     if uploaded_file is not None:
         file_bytes = uploaded_file.getvalue()
 
-        # ---- Step 2: Pick Excel sheet ----
         st.markdown("#### Step 2 — Choose Sheet from Excel")
         excel_sheets = get_excel_sheet_names(file_bytes)
 
@@ -436,7 +559,6 @@ with tab_excel:
                     key="gs_dest_sheet_select"
                 )
 
-            # ---- Step 3: Preview ----
             st.markdown("#### Step 3 — Preview")
 
             excel_df = read_excel_range(file_bytes, selected_excel_sheet, EXCEL_SOURCE_RANGE)
@@ -460,7 +582,6 @@ with tab_excel:
                 else:
                     st.info("No current data — this range will be filled.")
 
-            # ---- Step 4: Copy ----
             st.markdown("#### Step 4 — Copy")
             st.warning("⚠️ This will **overwrite** A57:D93 in the destination Google Sheet. Values only — no formatting.")
 
@@ -488,5 +609,207 @@ with tab_excel:
     else:
         st.info("👆 Upload an Excel file to begin.")
 
+# ============================================================
+# TAB 3: DASHBOARD
+# ============================================================
+with tab_dash:
+    st.subheader("📊 Slaughter Report Dashboard")
+    st.caption("Master view across all invoice sheets — reads specific cells from each sheet.")
+
+    if not sheet_names:
+        st.error("No sheets found.")
+    else:
+        if st.button("🔄 Load / Refresh Dashboard", type="primary", use_container_width=True):
+            st.cache_data.clear()
+
+        with st.spinner("Reading all sheets... this may take 30–60 seconds the first time."):
+            df_dash = fetch_dashboard_data(tuple(sheet_names))
+
+        if df_dash.empty:
+            st.warning("No data found. Check that your sheets contain values in the expected cells.")
+        else:
+            # Add Sl.No.
+            df_dash.insert(0, "Sl.No.", range(1, len(df_dash) + 1))
+
+            # --------------------------------------------------------
+            # SUMMARY CARDS
+            # --------------------------------------------------------
+            st.markdown("### 📈 Summary")
+
+            total_challans = len(df_dash)
+            total_birds = df_dash["Birds Received (Net)"].sum()
+            total_weight = df_dash["Final Weight (Processed)"].sum()
+            total_revenue = df_dash["Invoice Amt"].sum()
+            total_doa = df_dash["DOA"].sum()
+            avg_yield = df_dash["Yield %"].mean()
+
+            col1, col2, col3, col4, col5, col6 = st.columns(6)
+
+            with col1:
+                st.metric("📋 Challans", f"{total_challans:,}")
+            with col2:
+                st.metric("🐔 Birds (Net)", f"{total_birds:,.0f}")
+            with col3:
+                st.metric("⚖️ Weight (kg)", f"{total_weight:,.1f}")
+            with col4:
+                st.metric("💰 Revenue (OMR)", f"{total_revenue:,.2f}")
+            with col5:
+                st.metric("💀 DOA Total", f"{total_doa:,.0f}")
+            with col6:
+                st.metric("📊 Avg Yield %", f"{avg_yield:.2f}%")
+
+            # --------------------------------------------------------
+            # FILTERS
+            # --------------------------------------------------------
+            st.markdown("### 🔍 Filters")
+
+            col_f1, col_f2, col_f3 = st.columns(3)
+
+            with col_f1:
+                date_from = st.date_input("From Date", value=None, key="dash_from")
+            with col_f2:
+                date_to = st.date_input("To Date", value=None, key="dash_to")
+            with col_f3:
+                vehicle_filter = st.text_input("Vehicle No (contains)", key="dash_vehicle")
+
+            df_filtered = df_dash.copy()
+
+            if "Challan Date" in df_filtered.columns:
+                df_filtered["_parsed_date"] = pd.to_datetime(
+                    df_filtered["Challan Date"], errors="coerce", dayfirst=True
+                )
+
+                if date_from:
+                    df_filtered = df_filtered[
+                        df_filtered["_parsed_date"].dt.date >= date_from
+                    ]
+                if date_to:
+                    df_filtered = df_filtered[
+                        df_filtered["_parsed_date"].dt.date <= date_to
+                    ]
+
+                df_filtered = df_filtered.drop(columns=["_parsed_date"])
+
+            if vehicle_filter:
+                df_filtered = df_filtered[
+                    df_filtered["Vehicle No"].astype(str).str.contains(
+                        vehicle_filter, case=False, na=False
+                    )
+                ]
+
+            st.caption(f"Showing **{len(df_filtered)}** of {len(df_dash)} rows")
+
+            # --------------------------------------------------------
+            # MASTER TABLE
+            # --------------------------------------------------------
+            st.markdown("### 📋 Master Table")
+
+            display_order = [
+                "Sl.No.", "Shipment #", "Challan No", "Challan Date", "Invoice Date",
+                "Vehicle No", "Birds Age", "Birds Picked", "Count Error", "DOA",
+                "Rejected", "Total (CE+DOA+Rjtd)", "Birds Received (Net)",
+                "Final Weight (Processed)", "Invoice Amt", "Avg Weight / LB",
+                "Rate per Live Bird", "<=900gm (%)", ">=1000g (%)", "Yield %",
+                "1st Weight", "2nd Weight", "Weight (Total)"
+            ]
+
+            st.dataframe(
+                df_filtered[display_order],
+                use_container_width=True,
+                height=500,
+                hide_index=True,
+                column_config={
+                    "Birds Age": st.column_config.NumberColumn(format="%.2f"),
+                    "Birds Picked": st.column_config.NumberColumn(format="%d"),
+                    "Count Error": st.column_config.NumberColumn(format="%d"),
+                    "DOA": st.column_config.NumberColumn(format="%d"),
+                    "Rejected": st.column_config.NumberColumn(format="%d"),
+                    "Total (CE+DOA+Rjtd)": st.column_config.NumberColumn(format="%d"),
+                    "Birds Received (Net)": st.column_config.NumberColumn(format="%d"),
+                    "Final Weight (Processed)": st.column_config.NumberColumn(format="%.1f"),
+                    "Invoice Amt": st.column_config.NumberColumn(format="%.2f"),
+                    "Avg Weight / LB": st.column_config.NumberColumn(format="%.3f"),
+                    "Rate per Live Bird": st.column_config.NumberColumn(format="%.3f"),
+                    "<=900gm (%)": st.column_config.NumberColumn(format="%.2f%%"),
+                    ">=1000g (%)": st.column_config.NumberColumn(format="%.2f%%"),
+                    "Yield %": st.column_config.NumberColumn(format="%.2f%%"),
+                    "1st Weight": st.column_config.NumberColumn(format="%.0f"),
+                    "2nd Weight": st.column_config.NumberColumn(format="%.0f"),
+                    "Weight (Total)": st.column_config.NumberColumn(format="%.0f"),
+                }
+            )
+
+            # Column Totals
+            with st.expander("📊 Column Totals"):
+                totals = {
+                    "Birds Picked": df_filtered["Birds Picked"].sum(),
+                    "Count Error": df_filtered["Count Error"].sum(),
+                    "DOA": df_filtered["DOA"].sum(),
+                    "Rejected": df_filtered["Rejected"].sum(),
+                    "Total (CE+DOA+Rjtd)": df_filtered["Total (CE+DOA+Rjtd)"].sum(),
+                    "Birds Received (Net)": df_filtered["Birds Received (Net)"].sum(),
+                    "Final Weight (Processed)": df_filtered["Final Weight (Processed)"].sum(),
+                    "Invoice Amt": df_filtered["Invoice Amt"].sum(),
+                }
+                cols = st.columns(4)
+                for i, (k, v) in enumerate(totals.items()):
+                    with cols[i % 4]:
+                        st.metric(k, f"{v:,.2f}")
+
+            # --------------------------------------------------------
+            # CHARTS
+            # --------------------------------------------------------
+            st.markdown("### 📈 Charts")
+
+            chart_df = df_filtered.copy()
+            chart_df["_dt"] = pd.to_datetime(
+                chart_df["Challan Date"], errors="coerce", dayfirst=True
+            )
+            chart_df = chart_df.dropna(subset=["_dt"]).sort_values("_dt")
+
+            col_ch1, col_ch2 = st.columns(2)
+
+            with col_ch1:
+                if not chart_df.empty:
+                    fig1 = px.line(
+                        chart_df, x="_dt", y="Birds Received (Net)",
+                        title="Birds Received Over Time",
+                        markers=True
+                    )
+                    fig1.update_layout(height=350, margin=dict(l=10, r=10, t=50, b=10))
+                    st.plotly_chart(fig1, use_container_width=True)
+                else:
+                    st.info("No valid date data for chart")
+
+            with col_ch2:
+                if not chart_df.empty:
+                    fig2 = px.bar(
+                        chart_df, x="_dt", y="Yield %",
+                        title="Yield % Trend",
+                        color="Yield %",
+                        color_continuous_scale="Blues"
+                    )
+                    fig2.update_layout(height=350, margin=dict(l=10, r=10, t=50, b=10))
+                    st.plotly_chart(fig2, use_container_width=True)
+                else:
+                    st.info("No valid date data for chart")
+
+            # --------------------------------------------------------
+            # EXPORT
+            # --------------------------------------------------------
+            st.markdown("### 📥 Export")
+
+            csv_data = df_filtered[display_order].to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "📥 Download Master Table (CSV)",
+                data=csv_data,
+                file_name=f"dashboard_master_{_ist_today()}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+
+# ------------------------------------------------------------
+# FOOTER
+# ------------------------------------------------------------
 st.divider()
 st.caption("📋 Sheet Tools · Built by S. Mohapatra · Powered by Google Sheets API")
