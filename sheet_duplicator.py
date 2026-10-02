@@ -195,7 +195,6 @@ def duplicate_and_fill(new_name, data):
         new_sheet_name=new_name,
         insert_sheet_index=len(sheets)
     )
-
     new_sheet.update("A1", [[new_name]])
 
     updates = []
@@ -243,18 +242,74 @@ def _read_cell(data, cell):
         return ""
 
 def _parse_number(value):
-    if not value or value in ("-", "X", "x", "", "N/A"):
+    """Parse a numeric value.
+    Handles: (45) → -45  ·  '81%' → 81  ·  '1,234' → 1234  ·  '-' → 0  ·  'X' → 0
+    """
+    if value is None:
         return 0.0
-    cleaned = str(value).replace(",", "").replace("%", "").strip()
+    s = str(value).strip()
+    if s == "" or s in ("-", "X", "x", "N/A", "NA", "—"):
+        return 0.0
+
+    is_percent = s.endswith("%")
+    if is_percent:
+        s = s[:-1].strip()
+
     neg = False
-    if cleaned.startswith("(") and cleaned.endswith(")"):
+    if s.startswith("(") and s.endswith(")"):
         neg = True
-        cleaned = cleaned[1:-1]
+        s = s[1:-1].strip()
+
+    s = s.replace(",", "")
+
     try:
-        n = float(cleaned)
-        return -n if neg else n
+        n = float(s)
+        if neg:
+            n = -n
+        return n
     except Exception:
         return 0.0
+
+
+# ============================================================
+# CONFIRMED CELL MAP FOR DASHBOARD
+# ============================================================
+# These are the cells we read directly from the sheet.
+# ADJUST any cell if your layout differs.
+DASHBOARD_CELLS = {
+    # Identity
+    "Challan No":              "C6",
+    "Challan Date":            "C8",
+    "Invoice #":               "D6",       # ADJUST if different
+    "Invoice Date":            "H59",
+    "House #":                 "C11",
+    "Vehicle No":              "C15",
+
+    # Birds
+    "Birds Age":               "C12",
+    "Birds Picked Part 1":     "D12",
+    "Birds Picked Part 2":     "D14",
+    "Count Error":             "D17",
+    "DOA":                     "D20",
+    "Rejected":                "D21",
+    "Birds Received (Net)":    "D18",
+
+    # Weights
+    "1st Weight":              "E16",
+    "2nd Weight":              "E17",
+    "Final Weight (Processed)":"E25",
+
+    # Money
+    "Invoice Amt":             "D28",
+    "Rate per Live Bird":      "D29",
+
+    # Pre-calculated on the sheet
+    "Avg Weight / LB":         "E19",       # ADJUST if different
+    "<=900gm (%)":             "E33",       # ADJUST if different
+    ">=1000g (%)":             "E34",       # ADJUST if different
+    "Yield %":                 "E27",       # ADJUST if different
+}
+
 
 @st.cache_data(ttl=120, show_spinner=False)
 def fetch_dashboard_data(sheet_names):
@@ -264,7 +319,7 @@ def fetch_dashboard_data(sheet_names):
     for name in sheet_names:
         try:
             low = name.lower()
-            if "template" in low or "summary" in low or "target" in low:
+            if any(skip in low for skip in ("template", "summary", "target")):
                 continue
 
             ws = ss.worksheet(name)
@@ -272,76 +327,79 @@ def fetch_dashboard_data(sheet_names):
             if not data or len(data) < 30:
                 continue
 
-            challan_no = _read_cell(data, "C6")
-            challan_date = _read_cell(data, "C8")
-            house_no = _read_cell(data, "C11")
-            vehicle_no = _read_cell(data, "C15")
-            invoice_date = _read_cell(data, "H59")
+            # -------- Read all cells directly --------
+            challan_no = _read_cell(data, DASHBOARD_CELLS["Challan No"])
+            challan_date = _read_cell(data, DASHBOARD_CELLS["Challan Date"])
+            invoice_no = _read_cell(data, DASHBOARD_CELLS["Invoice #"])
+            invoice_date = _read_cell(data, DASHBOARD_CELLS["Invoice Date"])
+            house_no = _read_cell(data, DASHBOARD_CELLS["House #"])
+            vehicle_no = _read_cell(data, DASHBOARD_CELLS["Vehicle No"])
 
-            birds_age = _parse_number(_read_cell(data, "C12"))
-            birds_picked = (
-                _parse_number(_read_cell(data, "D12"))
-                + _parse_number(_read_cell(data, "D14"))
-            )
-            count_error = _parse_number(_read_cell(data, "D17"))
-            doa = _parse_number(_read_cell(data, "D20"))
-            rejected = _parse_number(_read_cell(data, "D21"))
-            birds_received = _parse_number(_read_cell(data, "D18"))
-            final_weight = _parse_number(_read_cell(data, "E25"))
-            invoice_amt = _parse_number(_read_cell(data, "D28"))
-            rate_per_lb = _parse_number(_read_cell(data, "D29"))
+            birds_age = _parse_number(_read_cell(data, DASHBOARD_CELLS["Birds Age"]))
+            birds_picked_1 = _parse_number(_read_cell(data, DASHBOARD_CELLS["Birds Picked Part 1"]))
+            birds_picked_2 = _parse_number(_read_cell(data, DASHBOARD_CELLS["Birds Picked Part 2"]))
+            birds_picked = birds_picked_1 + birds_picked_2
 
-            first_wt = _parse_number(_read_cell(data, "E16"))
-            second_wt = _parse_number(_read_cell(data, "E17"))
+            count_error = _parse_number(_read_cell(data, DASHBOARD_CELLS["Count Error"]))
+            doa = _parse_number(_read_cell(data, DASHBOARD_CELLS["DOA"]))
+            rejected = _parse_number(_read_cell(data, DASHBOARD_CELLS["Rejected"]))
+            birds_received = _parse_number(_read_cell(data, DASHBOARD_CELLS["Birds Received (Net)"]))
+
+            first_wt = _parse_number(_read_cell(data, DASHBOARD_CELLS["1st Weight"]))
+            second_wt = _parse_number(_read_cell(data, DASHBOARD_CELLS["2nd Weight"]))
             total_weight = first_wt - second_wt
 
+            final_weight = _parse_number(_read_cell(data, DASHBOARD_CELLS["Final Weight (Processed)"]))
+            invoice_amt = _parse_number(_read_cell(data, DASHBOARD_CELLS["Invoice Amt"]))
+            rate_per_lb = _parse_number(_read_cell(data, DASHBOARD_CELLS["Rate per Live Bird"]))
+
+            # Read pre-calculated fields directly from the sheet
+            avg_weight = _parse_number(_read_cell(data, DASHBOARD_CELLS["Avg Weight / LB"]))
+            le_900 = _parse_number(_read_cell(data, DASHBOARD_CELLS["<=900gm (%)"]))
+            ge_1000 = _parse_number(_read_cell(data, DASHBOARD_CELLS[">=1000g (%)"]))
+            yield_pct = _parse_number(_read_cell(data, DASHBOARD_CELLS["Yield %"]))
+
+            # Computed: Total (CE + DOA + Rejected)
+            # Note: Count Error is already negative (e.g. -45)
             total_ce_doa_rjtd = count_error + doa + rejected
 
-            avg_weight = 0.0
-            denominator = birds_age - abs(count_error)
-            if denominator != 0:
-                avg_weight = (first_wt - second_wt) / denominator
-
-            le_900 = sum(_parse_number(_read_cell(data, f"E{r}")) for r in range(33, 39))
-            ge_1000 = 1.0 - le_900 if le_900 <= 1 else 100 - le_900
-
-            yield_pct = 0.0
-            if total_weight != 0:
-                yield_pct = final_weight / total_weight
-
-            if not challan_no and birds_received == 0:
+            # Skip empty sheets
+            if not challan_no and birds_received == 0 and not house_no:
                 continue
 
             rows.append({
-                "Shipment #": name,
-                "House #": house_no,
-                "Challan No": challan_no,
-                "Challan Date": challan_date,
-                "Invoice Date": invoice_date,
-                "Vehicle No": vehicle_no,
-                "Birds Age": birds_age,
-                "Birds Picked": birds_picked,
-                "Count Error": count_error,
-                "DOA": doa,
-                "Rejected": rejected,
-                "Total (CE+DOA+Rjtd)": total_ce_doa_rjtd,
-                "Birds Received (Net)": birds_received,
-                "Final Weight (Processed)": final_weight,
-                "Invoice Amt": invoice_amt,
-                "Avg Weight / LB": round(avg_weight, 4),
-                "Rate per Live Bird": rate_per_lb,
-                "<=900gm (%)": round(le_900 * 100, 2) if le_900 <= 1 else round(le_900, 2),
-                ">=1000g (%)": round(ge_1000 * 100, 2) if ge_1000 <= 1 else round(ge_1000, 2),
-                "Yield %": round(yield_pct * 100, 2) if yield_pct <= 1 else round(yield_pct, 2),
-                "1st Weight": first_wt,
-                "2nd Weight": second_wt,
-                "Weight (Total)": total_weight,
+                "Shipment #":              name,
+                "House #":                 house_no,
+                "Challan No":              challan_no,
+                "Challan Date":            challan_date,
+                "Invoice #":               invoice_no,
+                "Invoice Date":            invoice_date,
+                "Vehicle No":              vehicle_no,
+                "Birds Age":               birds_age,
+                "Birds Picked":            birds_picked,
+                "Count Error":             count_error,
+                "DOA":                     doa,
+                "Rejected":                rejected,
+                "Total (CE+DOA+Rjtd)":     total_ce_doa_rjtd,
+                "Birds Received (Net)":    birds_received,
+                "Final Weight (Processed)":final_weight,
+                "Invoice Amt":             invoice_amt,
+                "Avg Weight / LB":         avg_weight,
+                "Rate per Live Bird":      rate_per_lb,
+                "<=900gm (%)":             le_900,
+                ">=1000g (%)":             ge_1000,
+                "Yield %":                 yield_pct,
+                "1st Weight":              first_wt,
+                "2nd Weight":              second_wt,
+                "Weight (Total)":          total_weight,
             })
+
         except Exception as e:
             st.warning(f"Could not read '{name}': {e}")
             continue
 
     return pd.DataFrame(rows)
+
 
 # ============================================================
 # UI
@@ -394,7 +452,7 @@ with tab_dup:
     st.subheader("➕ Create New Sheet from Last Sheet")
 
     if not sheet_names:
-        st.error("No sheets found. Verify spreadsheet ID and sharing.")
+        st.error("No sheets found.")
         st.stop()
 
     st.info(f"📄 **Source sheet:** `{sheet_names[-1]}`")
@@ -403,22 +461,15 @@ with tab_dup:
         new_sheet_name = st.text_input(
             "Sheet Name *",
             value=p.get("sheet_name", "") if p.get("sheet_name") != sheet_names[-1] else "",
-            placeholder="Enter a name for the new sheet",
-            help="Must be unique — cannot match an existing sheet name"
+            placeholder="Enter a name for the new sheet"
         )
-
         st.markdown("---")
-
         col1, col2 = st.columns(2)
-
         with col1:
             challan_no = st.text_input("Challan No (F59)", value=p.get("challan_no", ""))
-            challan_date = st.text_input("Challan Date (G59)", value=p.get("challan_date", ""),
-                                         placeholder="YYYY-MM-DD")
-            invoice_date = st.text_input("Invoice Date (H59)", value=p.get("invoice_date", ""),
-                                         placeholder="YYYY-MM-DD")
+            challan_date = st.text_input("Challan Date (G59)", value=p.get("challan_date", ""))
+            invoice_date = st.text_input("Invoice Date (H59)", value=p.get("invoice_date", ""))
             vehicle_no = st.text_input("Vehicle No (I59)", value=p.get("vehicle_no", ""))
-
         with col2:
             house1st = st.text_input("House #1st (G62)", value=p.get("house1st", ""))
             age1st = st.text_input("Age #1st (G63)", value=p.get("age1st", ""))
@@ -426,7 +477,6 @@ with tab_dup:
 
         st.markdown("---")
         st.caption("**2nd Entry (optional)**")
-
         col3, col4 = st.columns(2)
         with col3:
             house2nd = st.text_input("House #2nd (J62)", value=p.get("house2nd", ""))
@@ -434,11 +484,7 @@ with tab_dup:
         with col4:
             birds2nd = st.text_input("Birds #2nd (J64)", value=p.get("birds2nd", ""))
 
-        submitted = st.form_submit_button(
-            "🆕 Create Sheet",
-            use_container_width=True,
-            type="primary"
-        )
+        submitted = st.form_submit_button("🆕 Create Sheet", use_container_width=True, type="primary")
 
     if submitted:
         if not new_sheet_name.strip():
@@ -458,44 +504,26 @@ with tab_dup:
                 "age2nd": age2nd,
                 "birds2nd": birds2nd,
             }
-
             try:
                 with st.spinner(f"Creating sheet '{new_sheet_name}'..."):
                     duplicate_and_fill(new_sheet_name.strip(), data)
-
-                st.session_state.saved_prefill = {
-                    "sheet_name": "",
-                    **data
-                }
-
+                st.session_state.saved_prefill = {"sheet_name": "", **data}
                 st.cache_data.clear()
                 st.success(f"✅ Sheet **'{new_sheet_name}'** created successfully!")
                 st.balloons()
                 st.rerun()
-
             except Exception as e:
                 st.error(f"❌ Failed to create sheet: {e}")
 
     st.divider()
     st.subheader("📚 Existing Sheets")
-
     if sheet_names:
-        sheet_df = pd.DataFrame({
-            "#": range(1, len(sheet_names) + 1),
-            "Sheet Name": sheet_names
-        })
+        sheet_df = pd.DataFrame({"#": range(1, len(sheet_names) + 1), "Sheet Name": sheet_names})
         st.dataframe(sheet_df, hide_index=True, use_container_width=True)
 
         with st.expander("🗑️ Delete a Sheet"):
-            sheet_to_delete = st.selectbox(
-                "Select sheet to delete",
-                options=sheet_names,
-                key="delete_sheet_select"
-            )
-            confirm = st.checkbox(
-                f"Yes, delete **'{sheet_to_delete}'** permanently",
-                key="delete_confirm"
-            )
+            sheet_to_delete = st.selectbox("Select sheet", options=sheet_names, key="del_sheet")
+            confirm = st.checkbox(f"Yes, delete **'{sheet_to_delete}'**", key="del_confirm")
             if st.button("Delete Sheet", type="secondary"):
                 if confirm:
                     try:
@@ -515,11 +543,7 @@ with tab_excel:
     st.subheader("📥 Import Range from Excel → Google Sheet")
     st.caption("Upload an Excel file, pick a sheet, and copy **C2:F38** into the selected Google Sheet's **A57:D93**.")
 
-    uploaded_file = st.file_uploader(
-        "Choose an Excel file (.xlsx / .xls)",
-        type=["xlsx", "xls"],
-        key="excel_uploader"
-    )
+    uploaded_file = st.file_uploader("Choose an Excel file", type=["xlsx", "xls"], key="excel_uploader")
 
     if uploaded_file is not None:
         file_bytes = uploaded_file.getvalue()
@@ -529,26 +553,18 @@ with tab_excel:
             st.error("Could not read any sheets from the uploaded file.")
         else:
             col_e1, col_e2 = st.columns(2)
-
             with col_e1:
-                selected_excel_sheet = st.selectbox(
-                    "Excel Sheet",
-                    options=excel_sheets,
-                    key="excel_sheet_select"
-                )
-
+                selected_excel_sheet = st.selectbox("Excel Sheet", options=excel_sheets)
             with col_e2:
                 selected_gs_sheet = st.selectbox(
                     "Destination Google Sheet",
                     options=sheet_names if sheet_names else [],
-                    index=len(sheet_names) - 1 if sheet_names else 0,
-                    key="gs_dest_sheet_select"
+                    index=len(sheet_names) - 1 if sheet_names else 0
                 )
 
             excel_df = read_excel_range(file_bytes, selected_excel_sheet, EXCEL_SOURCE_RANGE)
 
             col_prev1, col_prev2 = st.columns(2)
-
             with col_prev1:
                 st.markdown(f"**Source: Excel `{selected_excel_sheet}` → {EXCEL_SOURCE_RANGE}**")
                 if not excel_df.empty:
@@ -557,7 +573,7 @@ with tab_excel:
                     st.warning("No data found in source range.")
 
             with col_prev2:
-                st.markdown(f"**Destination: Google Sheet `{selected_gs_sheet}` → {GS_DEST_RANGE}**")
+                st.markdown(f"**Destination: `{selected_gs_sheet}` → {GS_DEST_RANGE}**")
                 gs_current = read_gs_range(selected_gs_sheet, GS_DEST_RANGE)
                 if not gs_current.empty:
                     st.dataframe(gs_current, use_container_width=True, height=350, hide_index=True)
@@ -573,7 +589,7 @@ with tab_excel:
                 if not confirm_copy:
                     st.warning("Please check the confirmation box above.")
                 elif excel_df.empty:
-                    st.error("Source data is empty — nothing to copy.")
+                    st.error("Source data is empty.")
                 else:
                     try:
                         with st.spinner(f"Writing to {selected_gs_sheet}!A57:D93..."):
@@ -584,7 +600,6 @@ with tab_excel:
                         st.rerun()
                     except Exception as e:
                         st.error(f"❌ Failed to write: {e}")
-
     else:
         st.info("👆 Upload an Excel file to begin.")
 
@@ -592,144 +607,82 @@ with tab_excel:
 # TAB 3: DASHBOARD
 # ============================================================
 with tab_dash:
+    st.subheader("📊 Slaughter Report Dashboard")
+
+    # ---------- Excel-like CSS ----------
     st.markdown("""
     <style>
-        .report-header {
-            background: linear-gradient(135deg, #0d47a1 0%, #1976d2 100%);
-            color: white;
-            padding: 18px 22px;
-            border-radius: 12px;
+        table.excel-report {
+            width: 100%;
+            border-collapse: collapse;
+            font-family: Arial, sans-serif;
+            font-size: 11px;
+            margin-bottom: 16px;
+        }
+        table.excel-report th {
+            background: #1976d2;
+            color: #ffffff;
+            border: 1px solid #0d47a1;
+            padding: 6px 6px;
             text-align: center;
-            margin-bottom: 18px;
-        }
-        .report-header h1 {
-            margin: 0;
-            font-size: 20px;
-            letter-spacing: 0.5px;
-        }
-        .report-header p {
-            margin: 4px 0 0 0;
-            font-size: 12px;
-            opacity: 0.9;
-        }
-        .house-title {
-            background: linear-gradient(90deg, #1976d2 0%, #2196f3 100%);
-            color: white;
-            padding: 10px 18px;
-            border-radius: 10px 10px 0 0;
-            font-size: 16px;
             font-weight: 700;
-            letter-spacing: 0.5px;
+            white-space: nowrap;
         }
-        .subtotal-banner {
-            background: #e8f4fd;
+        table.excel-report td {
+            border: 1px solid #b0bec5;
+            padding: 5px 6px;
+            text-align: right;
+            white-space: nowrap;
+            color: #212121;
+        }
+        table.excel-report td.text-left {
+            text-align: left;
+        }
+        table.excel-report tr.subtotal-row td {
+            background: #bbdefb;
+            color: #0d47a1;
+            font-weight: 700;
+            border-top: 2px solid #0d47a1;
+            border-bottom: 2px solid #0d47a1;
+        }
+        table.excel-report tr.final-row td {
+            background: #ffe082;
+            color: #6d4c00;
+            font-weight: 700;
+            border-top: 2px solid #ffa000;
+            border-bottom: 2px solid #ffa000;
+        }
+        table.excel-report tr.grand-row td {
+            background: #0d47a1;
+            color: #ffffff;
+            font-weight: 700;
+            border: 1px solid #ffffff;
+            font-size: 12px;
+        }
+        .house-label {
+            background: #e3f2fd;
             border-left: 5px solid #1976d2;
-            border-right: 5px solid #1976d2;
-            padding: 10px 14px;
-            margin-top: 0;
-        }
-        .subtotal-banner .banner-label {
-            display: block;
+            padding: 8px 14px;
             font-size: 14px;
             font-weight: 700;
             color: #0d47a1;
-            letter-spacing: 1px;
-            margin-bottom: 8px;
-            text-align: center;
+            margin: 20px 0 8px 0;
         }
-        .final-total-banner {
-            background: linear-gradient(135deg, #fff8e1 0%, #ffe082 100%);
-            border-left: 6px solid #ffa000;
-            border-right: 6px solid #ffa000;
-            border-bottom: 6px solid #ffa000;
-            border-radius: 0 0 10px 10px;
-            padding: 12px 14px;
-            box-shadow: 0 3px 10px rgba(255,160,0,0.2);
-            margin-bottom: 20px;
-        }
-        .final-total-banner .banner-label {
-            display: block;
+        .grand-label {
+            background: #0d47a1;
+            color: #ffffff;
+            padding: 10px 16px;
             font-size: 15px;
             font-weight: 700;
-            color: #6d4c00;
-            letter-spacing: 1.5px;
-            margin-bottom: 10px;
             text-align: center;
+            margin: 22px 0 8px 0;
+            border-radius: 4px;
         }
-        .final-total-banner .adj-note {
-            text-align: center;
-            margin-top: 10px;
-            font-size: 12px;
-            color: #6d4c00;
-            font-style: italic;
-        }
-        /* Grid table for total/subtotal banners */
-        .banner-grid {
+        .table-scroll {
+            overflow-x: auto;
             width: 100%;
-            border-collapse: collapse;
-            margin-top: 4px;
-            table-layout: fixed;
-        }
-        .banner-grid td {
-            border: 1px solid rgba(25, 118, 210, 0.45);
-            padding: 6px 4px;
-            text-align: center;
-            font-size: 11px;
-            font-weight: 700;
-            color: #0d47a1;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .subtotal-banner .banner-grid td {
-            background: rgba(255, 255, 255, 0.7);
-        }
-        .final-total-banner .banner-grid td {
-            border: 1px solid rgba(255, 160, 0, 0.55);
-            background: rgba(255, 255, 255, 0.75);
-            color: #6d4c00;
-        }
-        .grand-total-banner {
-            background: linear-gradient(135deg, #0d47a1 0%, #1976d2 100%);
-            color: white;
-            padding: 16px 20px;
-            border-radius: 12px;
-            text-align: center;
-            margin-top: 20px;
-            margin-bottom: 12px;
-            box-shadow: 0 6px 22px rgba(13,71,161,0.28);
-        }
-        .grand-total-banner .banner-label {
-            display: block;
-            font-size: 17px;
-            font-weight: 700;
-            letter-spacing: 1.5px;
-            margin-bottom: 10px;
-        }
-        .banner-grid-grand td {
-            border: 1px solid rgba(255, 255, 255, 0.4);
-            background: rgba(255, 255, 255, 0.12);
-            color: #ffffff;
-            font-size: 13px;
-            padding: 8px 4px;
-            font-weight: 700;
-            text-align: center;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .stDataFrame td, .stDataFrame th {
-            font-size: 11px !important;
-            padding: 4px 6px !important;
         }
     </style>
-    """, unsafe_allow_html=True)
-
-    st.markdown(f"""
-    <div class="report-header">
-        <h1>📊 SLAUGHTER REPORT — CYCLE 13</h1>
-        <p>Sohar Poultry Company (S.A.O.C) · {_ist_now().strftime('%d %b %Y · %H:%M IST')}</p>
-    </div>
     """, unsafe_allow_html=True)
 
     if not sheet_names:
@@ -749,124 +702,140 @@ with tab_dash:
         else:
             df_dash.insert(0, "Sl.No.", range(1, len(df_dash) + 1))
 
-            display_cols = [
-                "Shipment #", "Birds Age", "Birds Picked", "Count Error", "DOA",
-                "Rejected", "Total (CE+DOA+Rjtd)", "Birds Received (Net)",
-                "Final Weight (Processed)", "Invoice Amt", "Avg Weight / LB",
-                "Rate per Live Bird", "<=900gm (%)", ">=1000g (%)", "Yield %"
+            # ---- Full column list (23 columns) ----
+            DISPLAY_COLS = [
+                "Sl.No.",
+                "Shipment #",
+                "Birds Age",
+                "Birds Picked",
+                "Count Error",
+                "DOA",
+                "Rejected",
+                "Total (CE+DOA+Rjtd)",
+                "Birds Received (Net)",
+                "Final Weight (Processed)",
+                "Invoice Amt",
+                "Avg Weight / LB",
+                "Rate per Live Bird",
+                "<=900gm (%)",
+                ">=1000g (%)",
+                "Yield %",
+                "Invoice #",
+                "Invoice Date",
+                "Challan No",
+                "1st Weight",
+                "2nd Weight",
+                "Weight (Total)",
+                "Vehicle No",
             ]
 
-            total_challans = len(df_dash)
-            total_birds = df_dash["Birds Received (Net)"].sum()
-            total_weight = df_dash["Final Weight (Processed)"].sum()
-            total_revenue = df_dash["Invoice Amt"].sum()
+            # Numeric columns for subtotals
+            NUM_COLS = [
+                "Birds Age", "Birds Picked", "Count Error", "DOA", "Rejected",
+                "Total (CE+DOA+Rjtd)", "Birds Received (Net)",
+                "Final Weight (Processed)", "Invoice Amt", "Avg Weight / LB",
+                "Rate per Live Bird", "<=900gm (%)", ">=1000g (%)", "Yield %",
+                "1st Weight", "2nd Weight", "Weight (Total)",
+            ]
 
-            st.markdown(f"""
-            <div style="text-align:center; padding: 10px 0 18px 0;">
-                <span style="display:inline-block; margin: 4px; padding: 6px 14px;
-                            background: #f0f7ff; border-radius: 20px; font-size: 12px; color: #0d47a1;">
-                    <b>{total_challans}</b> Challans
-                </span>
-                <span style="display:inline-block; margin: 4px; padding: 6px 14px;
-                            background: #f0f7ff; border-radius: 20px; font-size: 12px; color: #0d47a1;">
-                    <b>{total_birds:,.0f}</b> Birds
-                </span>
-                <span style="display:inline-block; margin: 4px; padding: 6px 14px;
-                            background: #f0f7ff; border-radius: 20px; font-size: 12px; color: #0d47a1;">
-                    <b>{total_weight:,.1f}</b> kg
-                </span>
-                <span style="display:inline-block; margin: 4px; padding: 6px 14px;
-                            background: #f0f7ff; border-radius: 20px; font-size: 12px; color: #0d47a1;">
-                    <b>OMR {total_revenue:,.2f}</b>
-                </span>
-            </div>
-            """, unsafe_allow_html=True)
+            # ---- Formatter ----
+            def fmt(v, col):
+                try:
+                    if col in ("Shipment #", "Invoice #", "Invoice Date",
+                               "Challan No", "Vehicle No"):
+                        return str(v) if v is not None and str(v) != "" else "—"
 
+                    if col == "Sl.No.":
+                        return f"{int(v)}" if v != "" else ""
+
+                    if col in ("Birds Picked", "Count Error", "DOA", "Rejected",
+                               "Total (CE+DOA+Rjtd)", "Birds Received (Net)",
+                               "1st Weight", "2nd Weight", "Weight (Total)"):
+                        return f"{float(v):,.0f}"
+
+                    if col in ("<=900gm (%)", ">=1000g (%)", "Yield %"):
+                        return f"{float(v):,.2f}%"
+
+                    if col == "Invoice Amt":
+                        return f"{float(v):,.2f}"
+
+                    if col in ("Avg Weight / LB", "Rate per Live Bird"):
+                        return f"{float(v):,.3f}"
+
+                    if col == "Birds Age":
+                        return f"{float(v):,.2f}"
+
+                    if col == "Final Weight (Processed)":
+                        return f"{float(v):,.1f}"
+
+                    return str(v)
+                except Exception:
+                    return str(v) if v is not None else "—"
+
+            if "adjustments" not in st.session_state:
+                st.session_state.adjustments = {}
+
+            grand_final_birds = 0.0
+            grand_final_weight = 0.0
+            grand_final_amount = 0.0
+
+            # House grouping
             df_dash["House #"] = df_dash["House #"].astype(str).str.strip()
             house_values = sorted(
                 [h for h in df_dash["House #"].unique() if h and h not in ("", "0", "nan")],
                 key=lambda x: (int(x) if x.isdigit() else 9999)
             )
 
-            if "adjustments" not in st.session_state:
-                st.session_state.adjustments = {}
-
-            num_cols = [
-                "Birds Age", "Birds Picked", "Count Error", "DOA", "Rejected",
-                "Total (CE+DOA+Rjtd)", "Birds Received (Net)",
-                "Final Weight (Processed)", "Invoice Amt", "Avg Weight / LB",
-                "Rate per Live Bird", "<=900gm (%)", ">=1000g (%)", "Yield %"
-            ]
-            ADJ_KEYS = ["Shipment #"] + num_cols
-
-            def _blank_adj_row():
-                row = {}
-                for k in ADJ_KEYS:
-                    row[k] = "" if k == "Shipment #" else 0.0
-                return row
-
-            grand_final_birds = 0.0
-            grand_final_weight = 0.0
-            grand_final_amount = 0.0
-
+            # ---- Render each house ----
             for h in house_values:
                 df_h = df_dash[df_dash["House #"] == h].copy()
                 if df_h.empty:
                     continue
 
-                # House title
+                st.markdown(f'<div class="house-label">🏠 HOUSE #{h} — {len(df_h)} challans</div>',
+                            unsafe_allow_html=True)
+
+                # ---- Detail table ----
+                header = "".join([f"<th>{c}</th>" for c in DISPLAY_COLS])
+                body = ""
+                for _, row in df_h.iterrows():
+                    cells = ""
+                    for c in DISPLAY_COLS:
+                        cls = "text-left" if c in ("Shipment #", "Invoice #", "Invoice Date",
+                                                    "Challan No", "Vehicle No", "Sl.No.") else ""
+                        cells += f'<td class="{cls}">{fmt(row.get(c, ""), c)}</td>'
+                    body += f"<tr>{cells}</tr>"
+
+                # Subtotal row
+                subtotal = {c: (df_h[c].sum() if c in df_h.columns else 0.0) for c in NUM_COLS}
+                sub_cells = '<td class="text-left">SUBTOTAL</td><td class="text-left"></td>'
+                for c in DISPLAY_COLS[2:]:
+                    if c in NUM_COLS:
+                        sub_cells += f'<td>{fmt(subtotal[c], c)}</td>'
+                    else:
+                        sub_cells += '<td></td>'
+                body += f'<tr class="subtotal-row">{sub_cells}</tr>'
+
                 st.markdown(
-                    f'<div class="house-title">🏠 HOUSE #{h} &nbsp;·&nbsp; {len(df_h)} challans</div>',
+                    f'<div class="table-scroll"><table class="excel-report">'
+                    f'<thead><tr>{header}</tr></thead>'
+                    f'<tbody>{body}</tbody></table></div>',
                     unsafe_allow_html=True
                 )
 
-                # Detail table
-                st.dataframe(
-                    df_h[display_cols],
-                    use_container_width=True,
-                    height=min(220, 32 * len(df_h) + 40),
-                    hide_index=True,
-                )
-
-                # Compute subtotal
-                subtotal = {}
-                for c in num_cols:
-                    subtotal[c] = df_h[c].sum() if c in df_h.columns else 0.0
-
-                # ---- SUBTOTAL BANNER (grid figures) ----
-                st.markdown(f"""
-                <div class="subtotal-banner">
-                    <span class="banner-label">🟦 SUBTOTAL — HOUSE #{h}</span>
-                    <table class="banner-grid">
-                        <tr>
-                            <td>{subtotal['Birds Age']:,.2f}</td>
-                            <td>{subtotal['Birds Picked']:,.0f}</td>
-                            <td>{subtotal['Count Error']:,.0f}</td>
-                            <td>{subtotal['DOA']:,.0f}</td>
-                            <td>{subtotal['Rejected']:,.0f}</td>
-                            <td>{subtotal['Total (CE+DOA+Rjtd)']:,.0f}</td>
-                            <td>{subtotal['Birds Received (Net)']:,.0f}</td>
-                            <td>{subtotal['Final Weight (Processed)']:,.1f}</td>
-                            <td>{subtotal['Invoice Amt']:,.2f}</td>
-                            <td>{subtotal['Avg Weight / LB']:,.3f}</td>
-                            <td>{subtotal['Rate per Live Bird']:,.3f}</td>
-                            <td>{subtotal['<=900gm (%)']:,.2f}%</td>
-                            <td>{subtotal['>=1000g (%)']:,.2f}%</td>
-                            <td>{subtotal['Yield %']:,.2f}%</td>
-                        </tr>
-                    </table>
-                </div>
-                """, unsafe_allow_html=True)
-
-                # Adjustments (all columns)
+                # ---- Adjustments ----
                 with st.expander(f"⚙️ Adjustments for House #{h} (optional)", expanded=False):
-                    st.caption("Fill only the rows you need. All columns available.")
+                    st.caption("Fill only the rows you need. All values start blank.")
+
+                    ADJ_KEYS = ["Shipment #"] + NUM_COLS
 
                     if h not in st.session_state.adjustments:
                         st.session_state.adjustments[h] = []
 
                     while len(st.session_state.adjustments[h]) < 4:
-                        st.session_state.adjustments[h].append(_blank_adj_row())
+                        st.session_state.adjustments[h].append(
+                            {k: ("" if k == "Shipment #" else 0.0) for k in ADJ_KEYS}
+                        )
 
                     for i in range(len(st.session_state.adjustments[h])):
                         row = st.session_state.adjustments[h][i]
@@ -874,16 +843,20 @@ with tab_dash:
                             if k not in row:
                                 row[k] = "" if k == "Shipment #" else 0.0
 
-                    hcols = st.columns([2.2, 0.8, 0.9, 0.8, 0.7, 0.7, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.8])
-                    headers = ["Shipment #", "Age", "Picked", "CE", "DOA", "Rej",
-                               "Total", "Recvd", "Weight", "Amt", "Avg/LB",
-                               "Rate/LB", "<=900", ">=1000", "Yield"]
-                    for hc, htext in zip(hcols, headers):
+                    # Header
+                    label_cols = ["Shipment #", "Age", "Picked", "CE", "DOA", "Rej",
+                                  "Total", "Recvd", "Weight", "Amt", "Avg/LB",
+                                  "Rate/LB", "<=900", ">=1000", "Yield",
+                                  "1st Wt", "2nd Wt", "Weight"]
+                    col_weights = [2.2, 0.7, 0.8, 0.7, 0.7, 0.7, 0.8, 0.8, 0.8, 0.9, 0.8,
+                                   0.8, 0.7, 0.7, 0.7, 0.8, 0.8, 0.8]
+                    hcols = st.columns(col_weights)
+                    for hc, htext in zip(hcols, label_cols):
                         with hc:
                             st.markdown(f"**{htext}**")
 
                     for i in range(4):
-                        row_cols = st.columns([2.2, 0.8, 0.9, 0.8, 0.7, 0.7, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.8])
+                        row_cols = st.columns(col_weights)
                         for col_ui, key in zip(row_cols, ADJ_KEYS):
                             with col_ui:
                                 if key == "Shipment #":
@@ -903,104 +876,97 @@ with tab_dash:
                                         label_visibility="collapsed"
                                     )
 
-                # Compute adjustments
-                adj_sums = {}
-                for c in num_cols:
-                    total = 0.0
-                    for adj_row in st.session_state.adjustments[h]:
+                # ---- Final total = subtotal + adjustments ----
+                adj_sums = {c: 0.0 for c in NUM_COLS}
+                for adj_row in st.session_state.adjustments[h]:
+                    for c in NUM_COLS:
                         try:
-                            total += float(adj_row.get(c, 0.0))
+                            adj_sums[c] += float(adj_row.get(c, 0.0))
                         except Exception:
                             pass
-                    adj_sums[c] = total
 
-                final = {c: subtotal[c] + adj_sums[c] for c in num_cols}
+                final = {c: subtotal[c] + adj_sums[c] for c in NUM_COLS}
 
-                # ---- FINAL TOTAL BANNER (grid figures) ----
-                adj_note = ""
-                if any(adj_sums.values()):
-                    adj_note = f'<div class="adj-note">Includes adjustments: +{adj_sums["Birds Received (Net)"]:,.0f} birds · +{adj_sums["Final Weight (Processed)"]:,.1f} kg · +OMR {adj_sums["Invoice Amt"]:,.2f}</div>'
+                final_cells = f'<td class="text-left">FINAL TOTAL — H#{h}</td><td class="text-left"></td>'
+                for c in DISPLAY_COLS[2:]:
+                    if c in NUM_COLS:
+                        final_cells += f'<td>{fmt(final[c], c)}</td>'
+                    else:
+                        final_cells += '<td></td>'
 
-                st.markdown(f"""
-                <div class="final-total-banner">
-                    <span class="banner-label">🎯 FINAL TOTAL — HOUSE #{h}</span>
-                    <table class="banner-grid">
-                        <tr>
-                            <td>{final['Birds Age']:,.2f}</td>
-                            <td>{final['Birds Picked']:,.0f}</td>
-                            <td>{final['Count Error']:,.0f}</td>
-                            <td>{final['DOA']:,.0f}</td>
-                            <td>{final['Rejected']:,.0f}</td>
-                            <td>{final['Total (CE+DOA+Rjtd)']:,.0f}</td>
-                            <td>{final['Birds Received (Net)']:,.0f}</td>
-                            <td>{final['Final Weight (Processed)']:,.1f}</td>
-                            <td>{final['Invoice Amt']:,.2f}</td>
-                            <td>{final['Avg Weight / LB']:,.3f}</td>
-                            <td>{final['Rate per Live Bird']:,.3f}</td>
-                            <td>{final['<=900gm (%)']:,.2f}%</td>
-                            <td>{final['>=1000g (%)']:,.2f}%</td>
-                            <td>{final['Yield %']:,.2f}%</td>
-                        </tr>
-                    </table>
-                    {adj_note}
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown(
+                    f'<div class="table-scroll"><table class="excel-report">'
+                    f'<tbody><tr class="final-row">{final_cells}</tr></tbody></table></div>',
+                    unsafe_allow_html=True
+                )
 
                 grand_final_birds += final["Birds Received (Net)"]
                 grand_final_weight += final["Final Weight (Processed)"]
                 grand_final_amount += final["Invoice Amt"]
 
-                st.markdown("<br>", unsafe_allow_html=True)
+            # ---- GRAND TOTAL ----
+            st.markdown('<div class="grand-label">🌐 GRAND TOTAL — ALL HOUSES</div>',
+                        unsafe_allow_html=True)
 
-            # ---- GRAND TOTAL BANNER ----
-            g_age = df_dash["Birds Age"].sum() if "Birds Age" in df_dash.columns else 0.0
+            # Compute grand totals using sum for numeric columns,
+            # and use the final figures where adjustments existed
+            g_age = df_dash["Birds Age"].sum()
             g_picked = df_dash["Birds Picked"].sum()
             g_ce = df_dash["Count Error"].sum()
             g_doa = df_dash["DOA"].sum()
             g_rej = df_dash["Rejected"].sum()
             g_total = df_dash["Total (CE+DOA+Rjtd)"].sum()
-            g_amt = df_dash["Invoice Amt"].sum()
-            g_avg = df_dash["Avg Weight / LB"].mean() if "Avg Weight / LB" in df_dash.columns else 0.0
-            g_rate = df_dash["Rate per Live Bird"].mean() if "Rate per Live Bird" in df_dash.columns else 0.0
-            g_le900 = df_dash["<=900gm (%)"].mean() if "<=900gm (%)" in df_dash.columns else 0.0
-            g_ge1000 = df_dash[">=1000g (%)"].mean() if ">=1000g (%)" in df_dash.columns else 0.0
-            g_yield = df_dash["Yield %"].mean() if "Yield %" in df_dash.columns else 0.0
+            g_1st = df_dash["1st Weight"].sum()
+            g_2nd = df_dash["2nd Weight"].sum()
+            g_weight_total = g_1st - g_2nd
 
-            st.markdown(f"""
-            <div class="grand-total-banner">
-                <span class="banner-label">🌐 GRAND TOTAL — ALL HOUSES</span>
-                <table class="banner-grid banner-grid-grand">
-                    <tr>
-                        <td>{g_age:,.2f}</td>
-                        <td>{g_picked:,.0f}</td>
-                        <td>{g_ce:,.0f}</td>
-                        <td>{g_doa:,.0f}</td>
-                        <td>{g_rej:,.0f}</td>
-                        <td>{g_total:,.0f}</td>
-                        <td>{grand_final_birds:,.0f}</td>
-                        <td>{grand_final_weight:,.1f}</td>
-                        <td>{grand_final_amount:,.2f}</td>
-                        <td>{g_avg:,.3f}</td>
-                        <td>{g_rate:,.3f}</td>
-                        <td>{g_le900:,.2f}%</td>
-                        <td>{g_ge1000:,.2f}%</td>
-                        <td>{g_yield:,.2f}%</td>
-                    </tr>
-                </table>
-            </div>
-            """, unsafe_allow_html=True)
+            grand_row = {
+                "Sl.No.":                    "GRAND",
+                "Shipment #":                "",
+                "Birds Age":                 g_age,
+                "Birds Picked":              g_picked,
+                "Count Error":               g_ce,
+                "DOA":                       g_doa,
+                "Rejected":                  g_rej,
+                "Total (CE+DOA+Rjtd)":       g_total,
+                "Birds Received (Net)":      grand_final_birds,
+                "Final Weight (Processed)":  grand_final_weight,
+                "Invoice Amt":               grand_final_amount,
+                "Avg Weight / LB":           "",
+                "Rate per Live Bird":        "",
+                "<=900gm (%)":               "",
+                ">=1000g (%)":               "",
+                "Yield %":                   "",
+                "Invoice #":                 "",
+                "Invoice Date":              "",
+                "Challan No":                "",
+                "1st Weight":                g_1st,
+                "2nd Weight":                g_2nd,
+                "Weight (Total)":            g_weight_total,
+                "Vehicle No":                "",
+            }
 
-            # ---- Master Table ----
+            header = "".join([f"<th>{c}</th>" for c in DISPLAY_COLS])
+            grand_cells = ""
+            for c in DISPLAY_COLS:
+                v = grand_row.get(c, "")
+                cls = "text-left" if c in ("Shipment #", "Invoice #", "Invoice Date",
+                                            "Challan No", "Vehicle No", "Sl.No.") else ""
+                grand_cells += f'<td class="{cls}">{fmt(v, c)}</td>'
+
+            st.markdown(
+                f'<div class="table-scroll"><table class="excel-report">'
+                f'<thead><tr>{header}</tr></thead>'
+                f'<tbody><tr class="grand-row">{grand_cells}</tr></tbody></table></div>',
+                unsafe_allow_html=True
+            )
+
+            # ---- Master table ----
             st.markdown("---")
             with st.expander("📋 Full Master Table (all challans)", expanded=False):
-                master_cols = ["Sl.No.", "House #"] + display_cols
+                master_cols = ["Sl.No.", "House #"] + DISPLAY_COLS[1:]
                 master_cols = [c for c in master_cols if c in df_dash.columns]
-                st.dataframe(
-                    df_dash[master_cols],
-                    use_container_width=True,
-                    height=500,
-                    hide_index=True,
-                )
+                st.dataframe(df_dash[master_cols], use_container_width=True, height=500, hide_index=True)
 
                 csv_data = df_dash[master_cols].to_csv(index=False).encode("utf-8")
                 st.download_button(
